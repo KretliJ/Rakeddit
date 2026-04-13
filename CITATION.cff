@@ -4,7 +4,7 @@ message: "If you use this software, please cite it using the metadata from this 
 type: software
 authors:
   - family-names: Kretli
-    given-names: Jonas
+    given-names: Jonas E. S.
     affiliation: "Federal University of Ouro Preto (UFOP)"
 repository-code: "https://github.com/jonas-kretli/rakeddit"
 abstract: >-
