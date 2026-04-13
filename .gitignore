@@ -1,3 +1,8 @@
+# User defined - data privacy focus
+*.json
+ignore/
+aggregates/*.json    # explicit kill switch for ranking manifests
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
