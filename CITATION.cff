@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "Rakeddit: A Systematic Reddit Harvester"
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+authors:
+  - family-names: Kretli
+    given-names: Jonas
+    affiliation: "Federal University of Ouro Preto (UFOP)"
+repository-code: "https://github.com/jonas-kretli/rakeddit"
+abstract: >-
+  A systematic and gentle Reddit data harvesting pipeline designed for 
+  behavioral research, community dissonance analysis, and large-scale 
+  interaction mapping.
+keywords:
+  - Reddit
+  - Data Harvesting
+  - Data Analysis
+  - Behavioral Analysis
+  - Information Systems
+  - UFOP
+date-released: 2026-04-12
+version: 1.0.0
