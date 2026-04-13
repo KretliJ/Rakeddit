@@ -4,12 +4,11 @@
 
 Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral data extraction from Reddit. It prioritizes "Gentle Harvesting" through randomized jittering and automated rate-limit handling, ensuring long-term stability for large-scale datasets. It does not require API access.
 
-WARNING:
-
-    * Strictly for research purposes. This is designed to handle up to 10,000 user profiles (up to 1,000,000 data points).
-    * This is designed to run over extended periods of time.
-    * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
-        * This will not collect email, phone numbers, real names, social security numbers, or check when you used the bathroom.
+⚠️WARNING:
+* Strictly for research purposes. This is designed to handle up to 10,000 user profiles (up to 1,000,000 data points).
+* This is designed to run over extended periods of time.
+* All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
+    * This will not collect email, phone numbers, real names, social security numbers, or check when you used the bathroom.
     
 ### [ EXECUTION SCRIPT ]
 
