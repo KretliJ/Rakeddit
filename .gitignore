@@ -1,5 +1,6 @@
 # User defined - data privacy focus
 *.json
+*.jsonl
 ignore/
 aggregates/*.json    # explicit kill switch for ranking manifests
 
