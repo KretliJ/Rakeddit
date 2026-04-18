@@ -22,7 +22,7 @@ The system identifies active threads and extracts the raw JSON structure of the 
 * **Storage:** Localized storage in `./json_dumps/[subreddit_name]/`.
 
 #### STAGE 2: Data Normalization (Tree Flattening)
-Transforms the highly nested, raw JSON comment trees into a flat, relational structure (Tidy Data) without losing conversational context.
+Transforms the highly nested, raw JSON comment trees into a flat, relational structure without losing conversational context.
 * **Mechanism:** Iterative Depth-First Search using a stack, preventing Python recursion limits on deep threads.
 * **Context Mapping:** Preserves referential integrity (`parent_id` and `post_id`) to allow reconstruction and reference of conversation paths for Context-Aware LLM Inference.
 * **Storage:** Streams directly to JSON Lines (`.jsonl`) format, guaranteeing reduced memory footpring regardless of the dataset size.
@@ -32,6 +32,12 @@ Transforms the highly nested, raw JSON comment trees into a flat, relational str
 ### [ USAGE ]
 
 #### [Functions](functions.md)
+
+### [ VERSION HISTORY ]
+
+* version: 1.1.0
+  * Tidy Data format
+  * DFS processing of raw json endpoint responses 
 
 ### [ DISCLAIMER ]
 
