@@ -7,7 +7,7 @@ config_path = os.path.join(current_dir, '..', 'config.ini')
 config = configparser.ConfigParser()
 config.read(config_path)
 
-AGGREGATES = config.get('AGGREGATES', 'BASE_PATH')
+AGGREGATES = config.get('PATHS', 'AGGREGATES_PATH')
 
 def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     # Flattens a comment tree using Depth-First Search.
