@@ -2,6 +2,7 @@ from modules.json_harvester import *
 from modules.processor import *
 # Global configs
 import configparser
+config = configparser.ConfigParser()
 config.read('config.ini')
 
 HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
@@ -12,6 +13,6 @@ if __name__  == "__main__":
     # To rake multiple subs use:
     # for sub subreddit_name in ["brasil", "portugal", "askacademico"]:
 
-        subreddit_name = "brasil" # -> Comment this off if running loop
+        subreddit_name = "botecodoreddit" # -> Comment this off if running loop
         # harvest_subreddit(subreddit_name, "top", limit=10)
-        extract_from_post(BASE_PATH, limit="brasil")
+        extract_from_post(BASE_PATH, limit="none")

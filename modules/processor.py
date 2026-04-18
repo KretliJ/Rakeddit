@@ -1,6 +1,7 @@
 import os
 import json
 import configparser
+from datetime import datetime
 current_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(current_dir, '..', 'config.ini')
 config = configparser.ConfigParser()
@@ -21,11 +22,12 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     else:
         target_folders = [os.path.join(folder_path, limit)]
 
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     # Write new structured JSONL (JSON Lines)
     if limit != "none":
-        out_file = f"{aggregates_dir}/{limit.upper()}_dataset_tidy_flattened.jsonl"
+        out_file = f"{aggregates_dir}/{limit.upper()}_data_normalized_" + current_time + ".jsonl"
     else:
-        out_file = f"{aggregates_dir}/FULL_dataset_tidy_flattened.jsonl"
+        out_file = f"{aggregates_dir}/FULL_data_normalized_" + current_time + ".jsonl"
 
     print(f"\n[INFO] Data extraction started. Streaming to: {out_file}")
 
