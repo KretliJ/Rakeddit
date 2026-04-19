@@ -11,20 +11,27 @@ HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
 BASE_PATH = config.get_path('PATHS', 'BASE_PATH')
 IMAGES = config.get_path('PATHS', 'MEDIA_PATH')
 
+
+
 # ______________________________________________________________________________________________
 # Lowest level auxiliary. Extracts a JSON reddit endpoint response
 
-def get_json(url):
-    try:
+def get_json(url, max_retries=5):
+    base_delay = 1  # 1 s
+    max_delay = 2000  # max 33 minutes
+    
+    for attempt in range(max_retries):
         response = requests.get(url, headers=HEADERS)
+        
         if response.status_code == 200:
             return response.json()
+        
         elif response.status_code == 429:
-            print("Oops! 429 (Too Many Requests). Nap time...")
-            time.sleep(60) # Back-off de 1 minuto
-            return None
-    except Exception as e:
-        print(f"Requisition error: {e}")
+            # Exponencial clássico: 1, 2, 4, 8, 16
+            wait = min(base_delay * (2 ** attempt), max_delay)
+            print(f"Rate limit! Aguardando {wait}s (tentativa {attempt+1}/{max_retries})")
+            time.sleep(wait)
+    
     return None
 
 # ______________________________________________________________________________________________
