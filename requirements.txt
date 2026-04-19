@@ -1,0 +1,16 @@
+# Core
+pillow>=10.0.0
+requests>=2.31.0
+
+# Config & Utils
+configparser>=6.0.0
+
+# Data Processing
+jsonlines>=4.0.0
+
+# Optional - Future upgrades
+# python-dotenv>=1.0.0
+# jsonschema>=4.20.0
+# matplotlib>=3.7.0  # visualization
+# pandas>=2.0.0      # dataframe analysis
+# streamlit>=1.28.0  # para dashboard

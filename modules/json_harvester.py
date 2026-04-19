@@ -5,14 +5,11 @@ import os
 import json
 
 # Global configs
-import configparser
-current_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(current_dir, '..', 'config.ini')
-config = configparser.ConfigParser()
-config.read(config_path)
+from modules.config_loader import config
 
 HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
-BASE_PATH = config.get('PATHS', 'BASE_PATH')
+BASE_PATH = config.get_path('PATHS', 'BASE_PATH')
+IMAGES = config.get_path('PATHS', 'MEDIA_PATH')
 
 # ______________________________________________________________________________________________
 # Lowest level auxiliary. Extracts a JSON reddit endpoint response
@@ -92,3 +89,46 @@ def harvest_subreddit(subreddit_name, category="hot", limit=25):
         time.sleep(wait_time)
         
     print(f"\n[HARVESTER] Finished raking for r/{subreddit_name}.")
+
+# ______________________________________________________________________________________________
+
+def downloader_function(url):
+    # Downloads a media file via URL using chunks and saves it locally
+    # Passive cache means it doesn't download existing files
+    # Returns absolute file path or None upon fail
+    
+    if not url:
+        return None
+
+    # Cleans URL to ensure a valid file name
+    # e.g.: 'video.mp4?source=reddit' -> 'video.mp4'
+    raw_filename = url.split('/')[-1]
+    clean_filename = raw_filename.split('?')[0]
+    
+    file_path = os.path.join(IMAGES, clean_filename)
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    
+    # 1. Cache verify (Avoiding duplicate request is even more gentle than timeouts and jittering)
+    if os.path.exists(file_path):
+        return file_path
+
+    try:
+        # 2. Safe request
+        # stream=True to avoid RAM saturation.
+        response = requests.get(url, headers=HEADERS, stream=True, timeout=15)
+        response.raise_for_status()
+        
+        # 3. Chunk recording (8KB each)
+        with open(file_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk: # Filters empty keep-alive chunks
+                    f.write(chunk)
+                    
+        return file_path
+        
+    except requests.exceptions.RequestException as e:
+        print(f"\n[ERROR] Failed to download from {url} -> {e}")
+        return None
+    except OSError as e:
+        print(f"\n[ERROr] Failed while saving file to {file_path} -> {e}")
+        return None

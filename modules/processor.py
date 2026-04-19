@@ -1,13 +1,21 @@
 import os
 import json
 import configparser
+import requests
+import re
+import subprocess
+import time
+from modules.json_harvester import downloader_function
 from datetime import datetime
-current_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(current_dir, '..', 'config.ini')
-config = configparser.ConfigParser()
-config.read(config_path)
+from modules.ai_manager import call_vision_ai
 
-AGGREGATES = config.get('PATHS', 'AGGREGATES_PATH')
+
+from modules.config_loader import config
+
+AGGREGATES = config.get_path('PATHS', 'AGGREGATES_PATH')
+IMAGES = config.get_path('PATHS', 'MEDIA_PATH')
+MULTIMODAL = config.get_path('PATHS', 'MULTIMODAL_PATH')
+
 
 def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     # Flattens a comment tree using Depth-First Search.
@@ -27,7 +35,7 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     if limit != "none":
         out_file = f"{aggregates_dir}/{limit.upper()}_data_normalized_" + current_time + ".jsonl"
     else:
-        out_file = f"{aggregates_dir}/FULL_data_normalized_" + current_time + ".jsonl"
+        out_file = f"{aggregates_dir}FULL_data_normalized_" + current_time + ".jsonl"
 
     print(f"\n[INFO] Data extraction started. Streaming to: {out_file}")
 
@@ -104,3 +112,109 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
 
     print(f"\n[SUCCESS] Processed {processed_count} comments.")
     print(f"[SUCCESS] Dataset saved to: {out_file}")
+    return out_file
+
+# ______________________________________________________________________________________________
+
+def process_media(jsonl_filepath):
+    # 1. loops over normalized dataset
+    # 2. intercepts comments with media
+    # 3. enriches text body via AI visualization
+    # 4. saves new multimodal JSONL
+    
+    # ==========================================
+    # CONFIG AND PATHS
+    # ==========================================
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_dir, '..', 'config.ini')
+    
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    AGGREGATES = config.get('PATHS', 'AGGREGATES_PATH', fallback='./aggregates')    
+    
+    base = os.path.basename(jsonl_filepath)
+    file_name = f"MULTIMODAL_{base}"
+    out_path = os.path.join(MULTIMODAL, file_name)
+
+    print(f"\n[INFO] Initiating enriching pipeline.")
+    print(f"[INFO] Reading: {base}")
+    
+    processed_count = 0
+    media_count = 0
+
+    # ==========================================
+    # PROCESSING
+    # ==========================================
+    # Opens input file for reading and output for simultaneous manipulation
+    with open(jsonl_filepath, 'r', encoding='utf-8') as f_in, \
+         open(out_path, 'w', encoding='utf-8') as f_out:
+        
+        for line in f_in:
+            record = json.loads(line)
+            original_body = record.get('body', '')
+
+            # "Fast Fail" optimization:
+            # Only call process_visual_content if text has obvious image link or markdown formats
+            if "http" in original_body or "![" in original_body:
+                
+                # AI call
+                enriched_body = process_visual_content(original_body)
+                
+                # If text changed (processed media), updates the record
+                if enriched_body != original_body:
+                    record['body'] = enriched_body
+                    media_count += 1
+            
+            # Writes registries (modified or not) in new JSONL
+            f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+            processed_count += 1
+
+    # ==========================================
+    # REPORT
+    # ==========================================
+    print(f"\n[SUCCESS] Visual processing completed.")
+    print(f" -> Saved in: {out_path}")
+    print(f" -> Total iterations: {processed_count}")
+    print(f" -> Enriched iterations: {media_count}")
+    
+    return out_path
+
+# ______________________________________________________________________________________________
+
+def process_visual_content(body_text):
+    # Flattens reddit proprietary formatting, downloads media and evokes AI
+    
+    if not body_text:
+        return body_text
+
+    # 1. Giphy treatment for Reddit markdown
+    giphy_pattern = r'!\[gif\]\(giphy\|([a-zA-Z0-9]+)[^)]*\)'
+    body_text = re.sub(giphy_pattern, r'https://i.giphy.com/\1.gif', body_text)
+
+    # 2. Decompositon from preview.redd.it to i.redd.it
+    preview_pattern = r'https?://preview\.redd\.it/([a-zA-Z0-9_-]+\.(?:jpeg|jpg|png|gif))(?:\?[^\s\])]*)?'
+    body_text = re.sub(preview_pattern, r'https://i.redd.it/\1', body_text)
+
+    # 3. URLs extraction from clean media
+    media_pattern = r'(https?://\S+\.(?:jpg|jpeg|png|gif|mp4))'
+    links = re.findall(media_pattern, body_text)
+
+    if not links:
+        return body_text
+
+    # 4. Image processing with text filter
+    for link in set(links):
+        ext = link.split('.')[-1].split('?')[0].upper()
+        
+        image_data = downloader_function(link)
+        print(f"[IMAGE AI - ({ext})] Analyzing from: {link}")
+            
+        description = call_vision_ai(image_data, extension=ext)
+        replacement_tag = f"[VISUAL CONTENT: {description}]"
+            
+        body_text = body_text.replace(link, replacement_tag)
+        
+    
+    return body_text.strip()
+
+# ______________________________________________________________________________________________

@@ -1,0 +1,15 @@
+[HEADERS]
+User-Agent = Research_Gentle_Harvesting_With_Jitter (contact: [YOUR EMAIL])
+# CHANGE THIS TO REFLECT YOUR USE CASE
+
+[PATHS]
+# CHANGE BASE_PATH IF YOU WANT TO DUMP FILES ELSEWHERE
+BASE_PATH = ./DATA/json_dumps/
+AGGREGATES_PATH = ./DATA/aggregates/
+MEDIA_PATH = ./DATA/temp_media/
+MULTIMODAL_PATH = ./DATA/vision_processing/
+
+[MODELS]
+# CHANGE THESE TO USE DIFFERENT AGENTS
+MAIN_INFER = llama3
+IMAGE_READER = qwen3-vl:2b-instruct

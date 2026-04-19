@@ -2,7 +2,22 @@
 *.json
 *.jsonl
 ignore/
-aggregates/*.json    # explicit kill switch for ranking manifests
+
+# remember kids, don't leak your API keys!!
+config.ini
+
+# also don't leak your sensitive prompts
+ollama.log
+*.log
+
+# as fun as memes and GIFs are they don't look great in github
+*.png
+*.jpeg
+*.jpg
+*.gif 
+*.mp4
+
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
