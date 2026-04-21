@@ -43,8 +43,9 @@
     # subreddit_name: string with subreddit name (e.g. "anime")
     # category: string with category to search into (e.g. "top")
     # limit: maximum of posts to rake down the chain
+    # timeframe: "today","month", "all"
 
-    harvest_subreddit(subreddit_name, category, limit)
+    harvest_subreddit(subreddit_name, limit, category, timeframe)
 
     # where: json_harvester.py
     

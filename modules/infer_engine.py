@@ -58,7 +58,13 @@ def run_ai(prompt, model_name=MAIN_INFER):
         "model": model_name,
         "prompt": prompt,
         "stream": False,
-        "format": "json"  # Forces Ollama to output JSON
+        "format": "json", 
+        "options": {
+            "temperature": 0.0,  # Factualidade absoluta
+            "top_p": 0.1,        # Corta a cauda de probabilidades (evita alucinações nas flags)
+            "num_predict": 100,  # Trava de segurança contra o "Loop de Chaves"
+            "seed": 42           # [CRÍTICO] Semente fixa para reprodutibilidade acadêmica
+        }
     }
 
     try:
@@ -74,7 +80,6 @@ def run_ai(prompt, model_name=MAIN_INFER):
         # Converts JSON string to a Python dictionary
         result_dict = json.loads(clean_text)
         return result_dict
-
     except requests.exceptions.RequestException as e:
         print(f"\n[NETWORK ERROR] Failed to get in touch with the local AI. Is Ollama running? Error: {e}")
     except json.JSONDecodeError:
@@ -137,7 +142,7 @@ def run_inference_pipeline(jsonl_filepath, post_catalog):
             
             # AI BLOCK
             prompt = prompt_maker(context_string, record['author'], record['body'])
-            print(f"[INFO] Processando {processed_count + 1}/{total_to_process} | ID: {current_id}") 
+            print(f"[INFO] Processing {processed_count + 1}/{total_to_process} | ID: {current_id}") 
             
             ai_response_json = run_ai(prompt)
             tox_score = calculate_toxicity(ai_response_json)

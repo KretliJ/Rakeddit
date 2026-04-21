@@ -2,6 +2,12 @@
 import os
 import configparser
 from pathlib import Path
+import ctypes
+
+# windows specific configs
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+
 
 class ConfigLoader:
     # Singleton
@@ -78,3 +84,16 @@ class ConfigLoader:
 
 # Exposed global instance
 config = ConfigLoader()
+
+def prevent_sleep_windows(enable=True):
+    # Enables or disables supension prevention for windows system
+    if enable:
+        # No sleepy
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            _ES_CONTINUOUS | _ES_SYSTEM_REQUIRED
+        )
+        print("Sleep prevention ACTIVE")
+    else:
+        # Restaura o comportamento padrão do sistema
+        ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS)
+        print("😴 Sleep prevention INACTIVE (might hibernate)")

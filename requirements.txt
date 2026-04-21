@@ -9,6 +9,7 @@ configparser>=6.0.0
 jsonlines>=4.0.0
 
 # Optional - Future upgrades
+scikit-learn>=1.8.0
 # python-dotenv>=1.0.0
 # jsonschema>=4.20.0
 # matplotlib>=3.7.0  # visualization

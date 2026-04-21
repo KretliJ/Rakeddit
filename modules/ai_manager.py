@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import time
 import requests
 from io import BytesIO
 from PIL import Image
@@ -43,43 +44,21 @@ def build_context_chain(target_id, data_dict, post_data):
 
 def prompt_maker(context_chain, target_comment_author, target_comment_body):
     
-    topics = {
-        'f1': 'Incivility (rude, disrespectful tone, or insults)',
-        'f2': 'Deliberate Fallacies (intentional strawman, loaded question, or false dilemma — not honest mistakes)',
-        'f3': 'Ad Hominem (attacking the person instead of the argument), ONLY when attacking the specific commenter being replying to. Attacking a political figure or group belongs in f4 (Hate Speech) if dehumanizing, or nowhere if just criticism.',
-        'f4': 'Hate Speech (attacks on groups/identity or dehumanization)',
-        'f5': 'Sarcasm/Irony (saying the opposite of what you mean for effect, e.g., "Great job..." after a failure. Does NOT include: analogies, ellipses, rhetorical questions, or simple disagreement.)'
-    }
+    prompt = f"""You are a linguistic analyst of Brazilian Portuguese online discourse.
+Evaluate ONLY the TARGET COMMENT based on the context. Output ONLY a valid JSON object. No markdown, no explanations.
 
-    aggro_levels = {
-        '0': 'Neutral or Gentle: Civil disagreement, objective statements, questions, laughter ("kkkk", "hahaha", "ksksks", "rsrs"). In Brazilian Portuguese, "kkk" is laughter, NOT related to hate groups.',
-        '1': 'Assertive: Mild frustration or emphasis (e.g., "MDS" = "my god", "nossa" = "wow", "caramba"). Slightly heated but not attacking.',
-        '2': 'Hostile: Direct insults, name-calling, clear anger, shouting ("SEU IDIOTA", "CALA BOCA"). Personal attacks without threats.',
-        '3': 'Extremely Aggressive: Threats of violence, extreme rage, dehumanizing language, wishes of harm ("devia morrer", "vou te quebrar").'
-    }
+FLAGS (Output 0 or 1):
+- f1 (Incivility): 1 if hostile, condescending, passive-aggressive, or mocking. 0 if objective, or if attacking an abstract IDEA rather than a person ("ideia burra").
+- f2 (Fallacy): 1 if deliberately using logical fallacies (e.g., strawman, whataboutism) to distort arguments.
+- f3 (Ad Hominem): 1 EXCLUSIVELY if attacking the character/intelligence of the DIRECT INTERLOCUTOR. 0 if insulting politicians, third parties, or news subjects.
+- f4 (Hate Speech): 1 if promoting violence, dehumanizing protected demographics, OR using graphic genital/sexual analogies involving minors in ideological debates.
+- f5 (Sarcasm): 1 if stating the exact opposite of the truth to ridicule. 0 for mere exaggerations or rhetorical anger.
 
-    system_instruction = (
-        "You are a linguistic analyst specializing in online political discourse. "
-        "Your task is to classify a SPECIFIC Reddit comment based on its negative traits. "
-        "You will be provided with the conversation history for context, but you MUST ONLY evaluate the 'TARGET COMMENT'."
-    )
-
-    task_details = (
-        "Evaluate the TARGET COMMENT for the following traits (1 if present, 0 if absent):\n"
-        f"   - f1: {topics['f1']}\n"
-        f"   - f2: {topics['f2']}\n"
-        f"   - f3: {topics['f3']}\n"
-        f"   - f4: {topics['f4']}\n"
-        f"   - f5: {topics['f5']}\n"
-        "Rate 'aggro' (Aggressiveness) from 0 to 3:\n"
-        f"   - 0: {aggro_levels['0']} | 1: {aggro_levels['1']} | 2: {aggro_levels['2']} | 3: {aggro_levels['3']}\n"
-        "\nOutput ONLY a valid JSON object."
-    )
-
-    prompt = f"""
-{system_instruction}
-
-{task_details}
+AGGRO (Output 0 to 3):
+- 0 (Neutral): Civil, objective. Includes enthusiastic or positive swearing ("Caralho, muito bom!").
+- 1 (Cynical): Passive-aggressive, mild frustration, sarcastic bite.
+- 2 (Hostile): Direct insults, clear anger, name-calling, shouting (without threats).
+- 3 (Extreme): Threats of violence, extreme rage, wishes of harm.
 
 ### CONVERSATION HISTORY (FOR CONTEXT ONLY):
 {context_chain}
@@ -87,30 +66,6 @@ def prompt_maker(context_chain, target_comment_author, target_comment_body):
 ### TARGET COMMENT TO ANALYZE:
 [{target_comment_author}]: "{target_comment_body}"
 
-"f3 (Ad Hominem) = 1 ONLY when attacking the PERSON making the argument.
-f3 = 0 for:
-- Rhetorical questions that mock an ARGUMENT 
-- Jokes or nonsense comments without a clear personal target
-- Attacking a third party not in the conversation
-"
-
-"f4 (Hate Speech) = 1 ONLY IF:
-- Attacks a PROTECTED GROUP (race, religion, gender, disability, sexual orientation)
-- Uses slurs or calls for violence
-
-f4 = 0 for:
-- Swear words directed at objects or situations ("merda", "porra", "caralho")
-- General frustration expressions
-- Insults about someone's character (that's f1 or f3)
-"
-"f5 (Sarcasm/Irony) = 1 ONLY if:
-- Unmistakable  — e.g., "Great job..." after a clear failure.
-f5 = 0 for:
-- If you have to ask whether it is sarcasm. Subtle or ambiguous sarcasm is 0.
-"
-"CRITICAL: The target comment's f1-f5 and aggro scores should be based solely on its own words and tone. Do not deduct points because it agrees/disagrees with a previous comment, and do not add points because a previous comment was hostile."
-
-### OUTPUT FORMAT:
 {{
   "f1": int,
   "f2": int,
@@ -118,40 +73,47 @@ f5 = 0 for:
   "f4": int,
   "f5": int,
   "aggro": int
-}}
-"""
+}}"""
+    
     print(f"[INFO] Prompt formatted")
     return prompt.strip()
 
 # ______________________________________________________________________________________________
 
 def calculate_toxicity(ai_response_dict):
-    # Calculates normalized toxicity index based on binary classification.
-    # Weights: f1=0.5, f2=0.75, f3=1.0, f4=2.0, f5=0.3
-   
     if not isinstance(ai_response_dict, dict):
-        return 0.0  # Fallback caso a IA não retorne um dicionário válido
+        return 0.0
 
-    # Safe extraction with float conversion (if AI decides it wants to return "1" rather than ')
     try:
         f1 = float(ai_response_dict.get('f1', 0))
         f2 = float(ai_response_dict.get('f2', 0))
         f3 = float(ai_response_dict.get('f3', 0))
         f4 = float(ai_response_dict.get('f4', 0))
         f5 = float(ai_response_dict.get('f5', 0))
+        aggro = float(ai_response_dict.get('aggro', 0))
     except (ValueError, TypeError):
         return 0.0
 
-    # defined weights
     w1, w2, w3, w4, w5 = 0.5, 0.75, 1.0, 2.0, 0.3
-    
     weighted_sum = (f1 * w1) + (f2 * w2) + (f3 * w3) + (f4 * w4) + (f5 * w5)
-    max_score = w1 + w2 + w3 + w4 + w5 # 4.55 currently
+    max_score = 4.55
     
-    toxicity = weighted_sum / max_score
+    base_toxicity = weighted_sum / max_score
+    m_aggro = {0.0: 0.5, 1.0: 0.75, 2.0: 1.0, 3.0: 1.0}.get(aggro, 0.5)
     
-    return round(toxicity, 4) # Round to 4 decimal places
-
+    # Function collapse into toxic/non-toxic: Aggro as multiplier
+    final_toxicity = base_toxicity * m_aggro
+    
+    # Toxicity Floor:
+    # Protects against false negativs (f_sum = 0) or obfuscated flags 
+    # where message is explicitly hostile or extreme (aggro >= 2)
+    if aggro >= 2.0:
+        floor = aggro * 0.05 # aggro 2 -> 0.1000 | aggro 3 -> 0.1500
+        # Score will be biggest value between normal calculation and safety floor
+        final_toxicity = max(final_toxicity, floor)
+        
+    # Roof (Normalizes to a maximum of 1.0)
+    return round(min(final_toxicity, 1.0), 4)
 # ______________________________________________________________________________________________
 
 
@@ -185,36 +147,58 @@ def call_vision_ai(image_path, extension, model_name=IMAGE_READER):
     # --- local API call ---
     url = "http://localhost:11434/api/chat"
     
-    prompt = "Transcribe EVERY writing from top-left to bottom-right. Then, describe the characters' expressions. If there is a relevant character in the image, point them out. If the image is a known meme, point it out (else, say nothing about it)."
-
-    payload = {
-        "model": model_name,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-                "images": [imagem_base64]
+    # Initial complex prompt for maximum extraction
+    current_prompt = (
+        "Extract all visible text from top-left to bottom-right. "
+        "Describe the main subjects, focusing on their facial expressions and body language. "
+        "Explicitly identify any recognizable public figures, politicians, or pop-culture characters. "
+        "If the image is a known internet meme format, state its name or usual context. "
+        "Be concise and objective."
+    )
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        # Payload defined per attemptto allow for change
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": current_prompt,
+                    "images": [imagem_base64]
+                }
+            ],
+            "stream": False,
+            "options": {
+                "temperature": 0.0,  # Factual/Deterministic
+                "num_predict": 150,
+                "num_ctx": 4096,
+                "top_p": 0.1
             }
-        ],
-        "stream": False,
-        "options": {
-            "temperature": 0.0 # Forçe factual/deterministic responses
         }
-    }
 
-    try:
-        response = requests.post(url, json=payload, timeout=120)
-        
-        if response.status_code != 200:
-            return f"({extension}) Error HTTP Ollama: {response.status_code}"
+        try:
+            # Timeout 3 minutes
+            response = requests.post(url, json=payload, timeout=180)
             
-        result = response.json()
-        description = result.get("message", {}).get("content", "").strip()
-        
-        if not description:
-            return f"({extension}) IA collapsed (Void String)."
+            if response.status_code == 200:
+                description = response.json().get("message", {}).get("content", "").strip()
+                if description:
+                    return description
             
-        return f"({extension}) {description}"
+        except requests.exceptions.Timeout:
+            print(f"⏰ Timeout na tentativa #{attempt+1}/{max_attempts}")
+            
+            # Fallback: Simplifies prompt for next attempt - After all, it already failed
+            current_prompt = "Describe the image"
+            
+            if attempt < max_attempts - 1:
+                # Delay for backend/VRAM to breathe
+                time.sleep(30)
+            else:
+                print(f"({extension}) Persistent failure after {max_attempts} attempts.")
+                return "Generic image for reaction or enriching explanation"
+        
+        except Exception as e:
+            return f"({extension}) Error: {e}"
 
-    except Exception as e:
-        return f"({extension}) Connection failure: {e}"
+    return "Generic image for reaction or enriching explanation"
