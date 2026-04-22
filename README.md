@@ -103,6 +103,7 @@ python main.py
 * version 1.2.1 (model adjustment)
   * Testing how local inference works around toxicity detection
   * Migrate from llama-3 8B Q4_0 to Q8_0
+  * Added a script to extract hallucinated rows
     
 * version: 1.2.0 (Multimodal Update)
   * off-grid local AI inference (Ollama integration).
