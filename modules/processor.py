@@ -11,7 +11,10 @@ from modules.ai_manager import call_vision_ai
 
 
 from modules.config_loader import config
-
+# Globals
+processed_count = 0
+media_processed_count = 0
+media_count = 0
 AGGREGATES = config.get_path('PATHS', 'AGGREGATES_PATH')
 IMAGES = config.get_path('PATHS', 'MEDIA_PATH')
 MULTIMODAL = config.get_path('PATHS', 'MULTIMODAL_PATH')
@@ -114,6 +117,9 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     print(f"[SUCCESS] Dataset saved to: {out_file}")
     return out_file
 
+def get_processed_count():
+    return processed_count
+
 # ______________________________________________________________________________________________
 
 def process_media(jsonl_filepath):
@@ -139,7 +145,7 @@ def process_media(jsonl_filepath):
     print(f"\n[INFO] Initiating enriching pipeline.")
     print(f"[INFO] Reading: {base}")
     
-    processed_count = 0
+    media_processed_count = 0
     media_count = 0
 
     # ==========================================
@@ -167,18 +173,23 @@ def process_media(jsonl_filepath):
             
             # Writes registries (modified or not) in new JSONL
             f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
-            processed_count += 1
+            media_processed_count += 1
 
     # ==========================================
     # REPORT
     # ==========================================
     print(f"\n[SUCCESS] Visual processing completed.")
     print(f" -> Saved in: {out_path}")
-    print(f" -> Total iterations: {processed_count}")
+    print(f" -> Total iterations: {media_processed_count}")
     print(f" -> Enriched iterations: {media_count}")
     
     return out_path
 
+def media_get_processed_count():
+    return media_processed_count
+
+def media_get_media_count():
+    return media_count
 # ______________________________________________________________________________________________
 
 def process_visual_content(body_text):

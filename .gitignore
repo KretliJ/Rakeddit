@@ -1,7 +1,7 @@
 # User defined - data privacy focus
 *.json
 *.jsonl
-ignore/
+results/
 
 # remember kids, don't leak your API keys!!
 config.ini

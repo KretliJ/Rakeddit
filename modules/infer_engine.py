@@ -187,7 +187,7 @@ def orchestrate_full_inference(jsonl_filepath):
     # 2. Create body catalogue { post_id: "body" }
     post_catalog = {}
     for sub, pid in post_targets:
-        print(f"   -> Buscando conteúdo original: {sub}/{pid}")
+        print(f"   -> Seeking original content: {sub}/{pid}")
         post_catalog[pid] = get_original_post_content(sub, pid)
 
     # 3. Run infer pipeline cycling through full catalogue
