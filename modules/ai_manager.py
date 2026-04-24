@@ -42,23 +42,29 @@ def build_context_chain(target_id, data_dict, post_data):
 
 # ______________________________________________________________________________________________
 
-def prompt_maker(context_chain, target_comment_author, target_comment_body):
-    
-    prompt = f"""You are a linguistic analyst of Brazilian Portuguese online discourse.
-Evaluate ONLY the TARGET COMMENT based on the context. Output ONLY a valid JSON object. No markdown, no explanations.
+def prompt_maker(context_chain, target_comment_author, target_comment_body, post_title, post_content):
+    prompt = f"""You are a Digital Forensic Auditor specializing in Brazilian Penal Law and online discourse.
+Your task is to analyze the TARGET COMMENT based on the provided context and output a normative severity score.
+Output ONLY a valid JSON object. Do not add explanations.
 
 FLAGS (Output 0 or 1):
-- f1 (Incivility): 1 if hostile, condescending, passive-aggressive, or mocking. 0 if objective, or if attacking an abstract IDEA rather than a person ("ideia burra").
-- f2 (Fallacy): 1 if deliberately using logical fallacies (e.g., strawman, whataboutism) to distort arguments.
-- f3 (Ad Hominem): 1 EXCLUSIVELY if attacking the character/intelligence of the DIRECT INTERLOCUTOR. 0 if insulting politicians, third parties, or news subjects.
-- f4 (Hate Speech): 1 if promoting violence, dehumanizing protected demographics, OR using graphic genital/sexual analogies involving minors in ideological debates.
-- f5 (Sarcasm): 1 if stating the exact opposite of the truth to ridicule. 0 for mere exaggerations or rhetorical anger.
+- f1 (Profanity): 1 for explicit swear words, obscenities, or profane slurs. 
+- f2 (Threats): 1 for an actionable promise to inflict physical or unjust damage.
+- f3 (Insult/Ad Hominem): 1 STRICTLY for direct attacks on an interlocutor's honor/character (e.g., "você é um idiota"). 0 for attacking abstract ideas.
+- f4 (Identity Hate): 1 for dehumanizing or segregating protected groups. 0 for generic political polarization, citing historical events, or satirical strawman arguments.
+- f5 (Perturbation): 1 for functionally obstructive speech (spam, pure rage-bait, harassment). 0 for casual slang, memes, or intense but functional debate. 0 if in doubt.
 
 AGGRO (Output 0 to 3):
-- 0 (Neutral): Civil, objective. Includes enthusiastic or positive swearing ("Caralho, muito bom!").
-- 1 (Cynical): Passive-aggressive, mild frustration, sarcastic bite.
-- 2 (Hostile): Direct insults, clear anger, name-calling, shouting (without threats).
-- 3 (Extreme): Threats of violence, extreme rage, wishes of harm.
+- 0: No hostility, functional speech, abstract debate.
+- 1: Sarcasm, cynical tone, passive-aggressive.
+- 2: Combative, anger, clear intent to offend.
+- 3: Explicit hostility, violence, dehumanization.
+
+GENERAL AUDIT RULE: Do not mistake informal internet slang or intense political disagreement for toxicity. HOWEVER, internet culture NEVER excuses direct personal attacks (f3) or explicit profanity (f1). A targeted insult is always an insult. Abstract debate is safe; targeted aggression is toxic.
+
+### ORIGINAL POST CONTEXT:
+Title: "{post_title}"
+Content: "{post_content}"
 
 ### CONVERSATION HISTORY (FOR CONTEXT ONLY):
 {context_chain}
@@ -75,7 +81,6 @@ AGGRO (Output 0 to 3):
   "aggro": int
 }}"""
     
-    print(f"[INFO] Prompt formatted")
     return prompt.strip()
 
 # ______________________________________________________________________________________________
@@ -94,26 +99,28 @@ def calculate_toxicity(ai_response_dict):
     except (ValueError, TypeError):
         return 0.0
 
-    w1, w2, w3, w4, w5 = 0.5, 0.75, 1.0, 2.0, 0.3
+    # Juridical proportionality weights (Coarse Tuning)
+    w1, w2, w3, w4, w5 = 0.5, 1.0, 1.0, 2.0, 0.25
+    
     weighted_sum = (f1 * w1) + (f2 * w2) + (f3 * w3) + (f4 * w4) + (f5 * w5)
-    max_score = 4.55
+    max_score = w1 + w2 + w3 + w4 + w5  # 4.75
     
     base_toxicity = weighted_sum / max_score
-    m_aggro = {0.0: 0.5, 1.0: 0.75, 2.0: 1.0, 3.0: 1.0}.get(aggro, 0.5)
     
-    # Function collapse into toxic/non-toxic: Aggro as multiplier
+    # Dosimetry (Fine Tuning)
+    aggro_multipliers = {
+        0.0: 0.875,  # Attenuant
+        1.0: 1.000,  # Generic Intent
+        2.0: 1.125,  # Aggravating Circumstances
+        3.0: 1.250   # Qualifying Circumstances)
+    }
+    
+    m_aggro = aggro_multipliers.get(aggro, 1.0)
+    
     final_toxicity = base_toxicity * m_aggro
     
-    # Toxicity Floor:
-    # Protects against false negativs (f_sum = 0) or obfuscated flags 
-    # where message is explicitly hostile or extreme (aggro >= 2)
-    if aggro >= 2.0:
-        floor = aggro * 0.05 # aggro 2 -> 0.1000 | aggro 3 -> 0.1500
-        # Score will be biggest value between normal calculation and safety floor
-        final_toxicity = max(final_toxicity, floor)
-        
-    # Roof (Normalizes to a maximum of 1.0)
-    return round(min(final_toxicity, 1.0), 4)
+    # Roof: Guarantees integrity of interval [0.0, 1.0]
+    return round(min(final_toxicity, 1.0), 2)
 # ______________________________________________________________________________________________
 
 
@@ -171,7 +178,7 @@ def call_vision_ai(image_path, extension, model_name=IMAGE_READER):
             "options": {
                 "temperature": 0.0,  # Factual/Deterministic
                 "num_predict": 150,
-                "num_ctx": 4096,
+                "num_ctx": 8192,
                 "top_p": 0.1
             }
         }

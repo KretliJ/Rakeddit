@@ -21,6 +21,7 @@ MULTIMODAL = config.get_path('PATHS', 'MULTIMODAL_PATH')
 
 
 def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
+    global processed_count
     # Flattens a comment tree using Depth-First Search.
     # folder_path: Base path for subreddit folder (e.g. './json_dumps/')
     # limit: "none" to read all (default), or string with subreddit name (e.g. "anime")
@@ -131,6 +132,7 @@ def process_media(jsonl_filepath):
     # ==========================================
     # CONFIG AND PATHS
     # ==========================================
+    global media_processed_count, media_count
     current_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(current_dir, '..', 'config.ini')
     

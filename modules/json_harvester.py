@@ -118,10 +118,7 @@ def harvest_subreddit(subreddit_name, limit, category, timeframe):
                 break
         
         # No next page, stop
-        if not after:
-            print(f"[HARVESTER] No more pages available.")
-            break
-        elif not after and remaining > 0: 
+        if not after and remaining > 0: 
             print(f"[HARVESTER] [!] End of the line. Reddit reached its pagination limit for this category.")
             break
         # Delay between batches

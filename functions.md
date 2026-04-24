@@ -174,3 +174,15 @@
     run_inference_pipeline(jsonl_filepath, post_catalog)
 
     # where: infer_engine.py
+
+# Audition
+
+### Ingests dataset, looks for AI hallucinations and returns both clean and dirty datasets
+    
+    # input_path: Relative path for input dataset
+    # clean_path: Relative path for clean output dataset
+    # dirty_path: Relative path for dirty output dataset
+
+    sanitize_dataset(input_path, clean_path, dirty_path):
+
+    # where: hallucination_sweep.py

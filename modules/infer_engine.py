@@ -60,10 +60,11 @@ def run_ai(prompt, model_name=MAIN_INFER):
         "stream": False,
         "format": "json", 
         "options": {
-            "temperature": 0.0,  # Factualidade absoluta
-            "top_p": 0.1,        # Corta a cauda de probabilidades (evita alucinações nas flags)
-            "num_predict": 100,  # Trava de segurança contra o "Loop de Chaves"
-            "seed": 42           # [CRÍTICO] Semente fixa para reprodutibilidade acadêmica
+            "temperature": 0.0,
+            "top_p": 0.9,      
+            "num_predict": 120, 
+            "seed": 42,
+            "stop": ["}\n", "} "] 
         }
     }
 
@@ -125,42 +126,89 @@ def run_inference_pipeline(jsonl_filepath, post_catalog):
     # 3. Crossing and inferencing (DFS)
     stack = []
     for r_id in reversed(root_ids):
-        p_id = comments_dict[r_id]['post_id']
-        # Pulls the correct body from catalog. Else, uses placeholder
-        body = post_catalog.get(p_id, "[POST BODY NOT FOUND]")
-        stack.append((r_id, [f"[ORIGINAL POST ]: {body}"]))
+        # NEW: The context list starts empty. 
+        # The Post Context is injected directly into the prompt now.
+        stack.append((r_id, []))
 
-    processed_count = 0
     total_to_process = len(comments_dict)
+    processed_count = 0
 
-    with open(out_path, "w", encoding="utf-8") as out_f:
+    # ==========================================
+    # CHECKPOINT: Recovery of previously processed data
+    # ==========================================
+    processed_ids = set()
+    if os.path.exists(out_path):
+        with open(out_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                    processed_ids.add(record['id'])
+                except json.JSONDecodeError:
+                    pass
+        print(f"\n[RESUME] Found {len(processed_ids)} already processed comments. Resuming where we left off...")
+
+    # (append) instead (write)
+    with open(out_path, "a", encoding="utf-8") as out_f:
         while stack:
             current_id, current_context_list = stack.pop()
             record = comments_dict[current_id]
             
-            context_string = "\n".join(current_context_list)
+            if current_id in processed_ids:
+                # Skips the AI but keeps count accurate
+                processed_count += 1
+            else:
+                # --- POST CONTEXT EXTRACTION ---
+                p_id = record['post_id']
+                p_data = post_catalog.get(p_id, {})
+                
+                # Handles both dict format {'title': '...', 'body': '...'} or flat string
+                if isinstance(p_data, dict):
+                    p_title = p_data.get('title', "Sem Título")
+                    p_body = p_data.get('body', "[Conteúdo Vazio / Imagem]")
+                else:
+                    p_title = "Sem Título"
+                    p_body = str(p_data)
+                
+                # TOKEN SAFEGUARD: Truncates long posts to prevent VRAM overflow
+                if len(p_body) > 600:
+                    p_body = p_body[:600] + "... [Truncado pelo Sistema]"
+
+                context_string = "\n".join(current_context_list)
+                
+                # --- AI BLOCK ---
+                # NOTE: You must update your 'prompt_maker' function signature to accept these new args!
+                prompt = prompt_maker(
+                    context_chain=context_string,
+                    target_comment_author=record['author'],
+                    target_comment_body=record['body'],
+                    post_title=p_title,
+                    post_content=p_body
+                )
+                
+                print(f"[INFO] Processing {processed_count + 1}/{total_to_process} | ID: {current_id}") 
+                
+                ai_response_json = run_ai(prompt)
+                tox_score = calculate_toxicity(ai_response_json)
+                
+                record['ai_analysis'] = ai_response_json
+                record['toxicity_score'] = tox_score
+                
+                out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                
+                # CRITICAL: Forces Python to write to disk immediately. 
+                # This allows safe stop for the script with Ctrl+C at any moment.
+                out_f.flush() 
+                
+                processed_count += 1
             
-            # AI BLOCK
-            prompt = prompt_maker(context_string, record['author'], record['body'])
-            print(f"[INFO] Processing {processed_count + 1}/{total_to_process} | ID: {current_id}") 
-            
-            ai_response_json = run_ai(prompt)
-            tox_score = calculate_toxicity(ai_response_json)
-            
-            record['ai_analysis'] = ai_response_json
-            record['toxicity_score'] = tox_score
-            
-            out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            processed_count += 1
-            
-            # Propagation of context to children
+            # Propagation of context to children happens REGARDLESS of AI skipping
             new_context_list = current_context_list.copy()
             new_context_list.append(f"[{record['author']}]: {record['body']}")
             
             for child_id in reversed(children_map[current_id]):
                 stack.append((child_id, new_context_list))
                 
-    print(f"\n[SUCCESS] Multimodal dataset processed: {out_path}")
+    print(f"\n[SUCCESS] Multimodal dataset fully processed: {out_path}")
 
 def orchestrate_full_inference(jsonl_filepath):
 

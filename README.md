@@ -8,7 +8,7 @@ Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral
 
 WARNING:
 
-    * Strictly for research purposes. This is designed to handle up to 100,000 comments maximum.
+    * Strictly for research purposes. This is designed to handle up to 10,000 user profiles (up to 1,000,000 data points).
     * This is designed to run over extended periods of time.
     * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
         * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.

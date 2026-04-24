@@ -10,20 +10,30 @@ import os
 HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
 BASE_PATH = config.get_path('PATHS', 'BASE_PATH')
 LOGGING_PATH = config.get_path('PATHS', 'LOGGING_PATH')
+AGGREGATES_PATH = config.get_path('PATHS', 'AGGREGATES_PATH')
+MEDIA_PATH = config.get_path('PATHS', 'MEDIA_PATH')
+MULTIMODAL_PATH = config.get_path('PATHS', 'MULTIMODAL_PATH')
+INFERRED_PATH = config.get_path('PATHS', 'INFERRED_PATH')
 
-subreddits = ["brasildob"]
-limit_of_posts = 1
+subreddits = ["opiniaoburra"]
+limit_of_posts = 100
 run_inference = True
-run_inference_only = False
+run_inference_only = True
 category = "top"
 timeframe = "month"
-infer_only_file = ' '
+infer_only_file = 'DATA/3-vision_processing/MULTIMODAL_OPINIAOBURRA_data_normalized_2026-04-23_01-25-44.jsonl'
 
 if __name__  == "__main__":
     
     if platform.system() == "Windows":
         prevent_sleep_windows(enable=True)
-        
+    os.makedirs(BASE_PATH, exist_ok=True)
+    os.makedirs(LOGGING_PATH, exist_ok=True)
+    os.makedirs(AGGREGATES_PATH, exist_ok=True)
+    os.makedirs(MEDIA_PATH, exist_ok=True)
+    os.makedirs(MULTIMODAL_PATH, exist_ok=True)
+    os.makedirs(INFERRED_PATH, exist_ok=True)
+
     if run_inference_only:
         try:
             orchestrate_full_inference(infer_only_file)
