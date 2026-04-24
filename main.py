@@ -15,7 +15,7 @@ from modules.processor import (
     media_get_media_count,
     media_get_processed_count
 )
-from modules.bert_filter import apply_bert_filter
+from modules.bert_filter import apply_bert_filter, bert_model
 from modules.infer_engine import orchestrate_full_inference
 
 class RakedditOrchestrator:
@@ -34,7 +34,7 @@ class RakedditOrchestrator:
         self.models = {
             "Main NLP": config.get('MODELS', 'MAIN_INFER'),
             "Vision": config.get('MODELS', 'IMAGE_READER'),
-            "Triage": "distilbert-multilingual-toxicity" # Definido no bert_filter
+            "Triage": bert_model # Definido no bert_filter
         }
         
         self.paths = {
