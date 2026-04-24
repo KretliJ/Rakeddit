@@ -25,19 +25,22 @@ The system identifies active threads and extracts the raw JSON structure of the 
 Transforms the highly nested, raw JSON comment trees into a flat, relational structure without losing conversational context.
 * **Mechanism:** Iterative Depth-First Search using a stack, preventing Python recursion limits on deep threads.
 * **Context Mapping:** Preserves referential integrity (`parent_id` and `post_id`) to allow reconstruction and reference of conversation paths for Context-Aware LLM Inference.
-* **Storage:** Streams directly to JSON Lines (`.jsonl`) format, guaranteeing reduced memory footpring regardless of the dataset size.
+* **Storage:** Streams directly to JSON Lines (`.jsonl`) format, guaranteeing a reduced memory footprint regardless of dataset size.
 
 #### STAGE 3: Multimodal Context Enrichment
 Sanitizes and processes visual media (JPEGs, PNGs, GIFs) into textual descriptions to capture rhetorical intent and OCR data without breaking the text-based LLM pipeline.
-
 * **Mechanism:** in-RAM image interceptor (Pillow) flattens alpha channels and animated frames, resizing media to prevent CUDA Out-of-Memory (OOM) errors.
 * **Vision Engine:** Connects to local Small Vision Language Models (e.g., Qwen2.5-VL via Ollama) via strict protocol validation to extract textual content and visual context.
 
-#### STAGE 4: Cognitive Inference & Toxicity Scoring
-Evaluates flattened dataset dynamically, computing hostility, sarcasm, and ad hominem vectors using local Large Language Models.
+#### STAGE 3.5: Cascade Inference (BERT Pre-filtering)
+Acts as a high-speed, low-cost syntactic filter to prune non-toxic comments, acting as a triage layer to save massive LLM inference time and VRAM.
+* **Mechanism:** Utilizes lightweight HuggingFace transformers (e.g., Multilingual Toxicity BERT) to perform a binary classification (Safe vs. Suspicious).
+* **Routing:** Safely ignores harmless chatter (True Negatives) and flags any sarcastic, profane, or ambiguous text for deeper semantic auditing in Stage 4.
 
-* **Mechanism:** Reconstructs the conversational path top-down. The engine passes the original post body and the exact chain of replies to the LLM to ensure accurate contextual awareness.
-* **Output:** Appends AI-generated JSON analysis directly to the .jsonl records, scoring "aggro" levels based on predefined sociological prompts.
+#### STAGE 4: Cognitive Inference & Toxicity Scoring
+Evaluates the flattened dataset dynamically, computing hostility, sarcasm, and ad hominem vectors using local Large Language Models (e.g., Llama-3 8B).
+* **Mechanism:** Reconstructs the conversational path top-down. The engine passes the Original Post Context and the exact conversation thread to the LLM to ensure precise contextual awareness and metalinguistic analysis.
+* **Output:** Appends AI-generated JSON analysis directly to the `.jsonl` records, scoring normative severity based on predefined sociological and legal prompts.
 ---
 
 ### [ USAGE ]
@@ -50,11 +53,10 @@ Evaluates flattened dataset dynamically, computing hostility, sarcasm, and ad ho
 * **OS:** Windows or Linux (Debian-based distributions recommended for Python integration).
 * **Python:** Version 3.10 or higher (Python 3.13 verified for stable `Pillow` compilation).
 * **Backend:** [Ollama](https://ollama.com/) must be installed and running locally as a background service.
-* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM) for stable multimodal parsing and text generation without system hanging.
-    * Trustworthy CPU fallback has not been implemented as of v1.2.0
+* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM or higher) for stable multimodal parsing and text generation.
  
 #### 2. Environment Setup
-Clone the repository and install the required Python packages. The pipeline relies on `requests` for local API interactions and `Pillow` for in-RAM image sanitization.
+Clone the repository and install the required Python packages. The pipeline relies on `requests` for local API interactions, `Pillow` for in-RAM image sanitization, and `transformers`/`torch` for cascade filtering.
 
 ```bash
 git clone [https://github.com/KretliJ/Rakeddit.git](https://github.com/KretliJ/Rakeddit.git)
@@ -66,12 +68,13 @@ pip install -r requirements.txt
 
 ```bash
 # Pull the Main Inference Engine (Text / NLP)
-ollama pull llama3
+ollama pull llama3:8b-instruct-q8_0
 
 # Pull the Image Reader Engine (Vision / OCR)
 # Note: The 3B parameter version is optimized to leave VRAM headroom on 8GB GPUs.
 ollama pull qwen2.5vl:3b
 ```
+(Note: The BERTimbau / Toxicity model will be downloaded automatically via HuggingFace on the first run).
 
 #### 4. Configuration (config.ini)
 Ensure your `config.ini` is set up correctly in the root directory. Do not use quotes around the model names, as the strict protocol validation will reject the payload with an HTTP 400 Bad Request.
@@ -95,11 +98,20 @@ IMAGE_READER = qwen3-vl:2b-instruct
 
 #### 5. Execution
 With backend running and dependencies installed, trigger the orchestrator with:
-### [ VERSION HISTORY ]
 
 ```bash
 python main.py
 ```
+
+### [ VERSION HISTORY ]
+
+* version 1.3.0 (Cascade Architecture & OOP Refactoring)
+
+  * Implemented Model Routing (BERT to Llama-3) to optimize VRAM and inference time.
+  * Refactored main.py into an Object-Oriented pipeline.
+  * Integrated native Python logging for robust error tracking and monitoring.
+  * Separated POST CONTEXT from CONVERSATION HISTORY in LLM prompts to fix orphan comment hallucinations.
+
 * version 1.2.1 (model adjustment)
   * Testing how local inference works around toxicity detection
   * Migrate from llama-3 8B Q4_0 to Q8_0

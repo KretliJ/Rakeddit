@@ -8,10 +8,14 @@ configparser>=6.0.0
 # Data Processing
 jsonlines>=4.0.0
 
+# Machine Learning & Cascade Filtering
+torch>=2.0.0
+transformers>=4.30.0
+
 # Optional - Future upgrades
 scikit-learn>=1.8.0
 # python-dotenv>=1.0.0
 # jsonschema>=4.20.0
 # matplotlib>=3.7.0  # visualization
 # pandas>=2.0.0      # dataframe analysis
-# streamlit>=1.28.0  # para dashboard
+# streamlit>=1.28.0  # dashboard

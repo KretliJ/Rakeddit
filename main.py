@@ -1,152 +1,183 @@
-from modules.json_harvester import *
-from modules.processor import *
-from modules.infer_engine import orchestrate_full_inference
-from modules.config_loader import prevent_sleep_windows
-from modules.config_loader import config
-import datetime
-import platform
 import os
+import logging
+import platform
+import datetime
+import time
+from pathlib import Path
 
-HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
-BASE_PATH = config.get_path('PATHS', 'BASE_PATH')
-LOGGING_PATH = config.get_path('PATHS', 'LOGGING_PATH')
-AGGREGATES_PATH = config.get_path('PATHS', 'AGGREGATES_PATH')
-MEDIA_PATH = config.get_path('PATHS', 'MEDIA_PATH')
-MULTIMODAL_PATH = config.get_path('PATHS', 'MULTIMODAL_PATH')
-INFERRED_PATH = config.get_path('PATHS', 'INFERRED_PATH')
+# Módulos do Projeto
+from modules.config_loader import config, prevent_sleep_windows
+from modules.json_harvester import harvest_subreddit
+from modules.processor import (
+    extract_from_post, 
+    process_media, 
+    get_processed_count, 
+    media_get_media_count,
+    media_get_processed_count
+)
+from modules.bert_filter import apply_bert_filter
+from modules.infer_engine import orchestrate_full_inference
 
-subreddits = ["opiniaoburra"]
-limit_of_posts = 100
-run_inference = True
-run_inference_only = True
-category = "top"
-timeframe = "month"
-infer_only_file = 'DATA/3-vision_processing/MULTIMODAL_OPINIAOBURRA_data_normalized_2026-04-23_01-25-44.jsonl'
-
-if __name__  == "__main__":
+class RakedditOrchestrator:
+    """
+    Gerencia a pipeline Rakeddit com foco em rastreabilidade e métricas acadêmicas.
+    """
     
-    if platform.system() == "Windows":
-        prevent_sleep_windows(enable=True)
-    os.makedirs(BASE_PATH, exist_ok=True)
-    os.makedirs(LOGGING_PATH, exist_ok=True)
-    os.makedirs(AGGREGATES_PATH, exist_ok=True)
-    os.makedirs(MEDIA_PATH, exist_ok=True)
-    os.makedirs(MULTIMODAL_PATH, exist_ok=True)
-    os.makedirs(INFERRED_PATH, exist_ok=True)
-
-    if run_inference_only:
-        try:
-            orchestrate_full_inference(infer_only_file)
-        except Exception as e:
-            print(e)
-        finally:
-            if platform.system() == "Windows":
-                prevent_sleep_windows(enable=False)
-    else:
-        start_time = datetime.datetime.now()
+    def __init__(self, subreddits, limit_per_sub=100, category="top", timeframe="month"):
+        self.subreddits = subreddits
+        self.limit = limit_per_sub
+        self.category = category
+        self.timeframe = timeframe
+        self.start_time = datetime.datetime.now()
         
-        start_banner = f"""# 🚀 RAKEDDIT PIPELINE - EXECUTION LOG
+        # Ingestão de configurações do config.ini
+        self.models = {
+            "Main NLP": config.get('MODELS', 'MAIN_INFER'),
+            "Vision": config.get('MODELS', 'IMAGE_READER'),
+            "Triage": "distilbert-multilingual-toxicity" # Definido no bert_filter
+        }
+        
+        self.paths = {
+            "base": config.get_path('PATHS', 'BASE_PATH'),
+            "logs": config.get_path('PATHS', 'LOGGING_PATH'),
+            "reports": config.get_path('PATHS', 'LOGGING_PATH') # Relatórios .md ficam no mesmo lugar
+        }
+        
+        self.log_filename = os.path.join(
+            self.paths["reports"], 
+            f"REPORT_{self.start_time.strftime('%Y-%m-%d_%H-%M-%S')}.md"
+        )
+        
+        self._init_system()
+        self._write_md_header()
 
-**Metadata:**
-* **Date:** {start_time.strftime('%d/%m/%Y')}
-* **Start Time:** {start_time.strftime('%H:%M:%S')}
-* **OS:** {platform.system()} {platform.release()}
-                                                       
-**Configuration:**
-* **Subreddits:** {', '.join(subreddits)}
-* **Limit per sub:** {limit_of_posts} posts
-* **Parameters:** {category} / {timeframe}
-* **Inference Enabled:** {run_inference}
+    def _init_system(self):
+        """Prepara o ambiente e previne hibernação."""
+        for path in self.paths.values():
+            os.makedirs(path, exist_ok=True)
+        if platform.system() == "Windows":
+            prevent_sleep_windows(enable=True)
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s [%(levelname)s] %(message)s',
+            handlers=[logging.StreamHandler()]
+        )
+        self.logger = logging.getLogger("Rakeddit")
+
+    def _write_md_header(self):
+        """Cria o cabeçalho descritivo do relatório acadêmico."""
+        header = f"""# 📊 Relatório de Execução Pipeline Rakeddit
+**Data:** {self.start_time.strftime('%d/%m/%Y')} | **Início:** {self.start_time.strftime('%H:%M:%S')}
+
+## 🛠 Configuração do Ambiente
+* **Sistema Operacional:** {platform.system()} {platform.release()}
+* **Modelo NLP Principal:** `{self.models['Main NLP']}`
+* **Modelo de Visão:** `{self.models['Vision']}`
+* **Modelo de Triagem (BERT):** `{self.models['Triage']}`
+
+## 🎯 Parâmetros de Coleta
+* **Subreddits:** {', '.join(self.subreddits)}
+* **Limite por Sub:** {self.limit} posts
+* **Filtro Temporal:** {self.category} / {self.timeframe}
 
 ---
 """
-        print(start_banner)
-        log_filename = os.path.join(LOGGING_PATH, f"{start_time.strftime('%Y-%m-%d_%H-%M-%S')}_collection.md")
+        with open(self.log_filename, "w", encoding="utf-8") as f:
+            f.write(header)
+
+    def _append_md_stage(self, title, stats_dict, duration):
+        """Adiciona uma seção de etapa ao arquivo .md em tempo real."""
+        content = f"### {title}\n"
+        content += f"* **Duração da Etapa:** {duration}\n"
+        for key, value in stats_dict.items():
+            content += f"* **{key}:** {value}\n"
+        content += "\n"
         
+        with open(self.log_filename, "a", encoding="utf-8") as f:
+            f.write(content)
+
+    def run(self):
+        """Executa a pipeline completa iterando pelos subreddits."""
         try:
-            with open(log_filename, "w", encoding="utf-8") as f:
-                f.write(start_banner + "\n")
-        
-            for subreddit_name in subreddits:
-
-                with open(log_filename, "a", encoding="utf-8") as f:
-                    f.write(f"## Processing: r/{subreddit_name}\n\n")
+            for sub in self.subreddits:
+                self.logger.info(f"🚀 Iniciando processamento de r/{sub}")
                 
-                # 1. HARVESTING
-                t0_harvest = datetime.datetime.now()
-                harvest_subreddit(subreddit_name, limit_of_posts, category, timeframe)
-                t1_harvest = datetime.datetime.now()
-                
-                # 2. EXTRACTION
-                t0_extract = datetime.datetime.now()
-                path_normalized = extract_from_post(BASE_PATH, subreddit_name) 
-                t1_extract = datetime.datetime.now()
-                
-                harvest_stats = f"""### 💬 Data Extraction Stats
-* **Target Posts:** {limit_of_posts}
-* **API Batches:** {limit_of_posts//25}
-* **Comments Flattened:** {get_processed_count()}
-* **Harvesting Time:** {t1_harvest - t0_harvest}
-* **Flattening Time:** {t1_extract - t0_extract}
+                # --- ETAPA 1: HARVESTING ---
+                t0 = time.time()
+                harvest_subreddit(sub, self.limit, self.category, self.timeframe)
+                dur = datetime.timedelta(seconds=time.time()-t0)
+                self._append_md_stage(f"1. Harvesting r/{sub}", {"Status": "Concluído"}, dur)
 
-"""
-                print(harvest_stats)
-                with open(log_filename, "a", encoding="utf-8") as f:
-                    f.write(harvest_stats)
-                
-                # 3. VISUAL PROCESSING
-                if path_normalized:
-                    t0_media = datetime.datetime.now()
-                    path_multimodal = process_media(path_normalized)
-                    t1_media = datetime.datetime.now()
-                    
-                    media_stats = f"""### 👀 Visual Processing Stats (OCR & Vision AI)
-* **Total Comments Scanned:** {media_get_processed_count()}
-* **Media Enriched (Images processed):** {media_get_media_count()}
-* **Vision Pipeline Time:** {t1_media - t0_media}
-* **Average per media:** {(t1_media - t0_media)/media_get_media_count() if media_get_media_count() > 0 else '0:00:00'}
+                # --- ETAPA 2: EXTRACTION & FLATTENING ---
+                t0 = time.time()
+                path_norm = extract_from_post(self.paths["base"], sub)
+                dur = datetime.timedelta(seconds=time.time()-t0)
+                self._append_md_stage("2. Extração e Achatamento (DFS)", {
+                    "Registros Gerados": get_processed_count(),
+                    "Arquivo de Saída": os.path.basename(path_norm)
+                }, dur)
 
-"""
-                    print(media_stats)
-                    with open(log_filename, "a", encoding="utf-8") as f:
-                        f.write(media_stats)
-                        
-                    # 4. TEXT INFERENCE
-                    if path_multimodal and run_inference:
-                        t0_infer = datetime.datetime.now()
-                        orchestrate_full_inference(path_multimodal)
-                        t1_infer = datetime.datetime.now()
-                        
-                        infer_stats = f"""### 🧠 Text Inference Stats (Llama-3 8B)
-* **Inference Pipeline Time:** {t1_infer - t0_infer}
-* **Average per inference:** {(t1_infer - t0_infer)/media_get_processed_count() if media_get_processed_count() > 0 else '0:00:00'}
+                # --- ETAPA 3: MULTIMODAL PROCESSING ---
+                t0 = time.time()
+                path_multi = process_media(path_norm)
+                dur = datetime.timedelta(seconds=time.time()-t0)
+                self._append_md_stage("3. Enriquecimento Multimodal (Vision AI)", {
+                    "Total Comentários": media_get_processed_count(),
+                    "Imagens Encontradas": media_get_media_count()
+                }, dur)
 
-"""
-                        with open(log_filename, "a", encoding="utf-8") as f:
-                            f.write(infer_stats)
-            
-            end_time = datetime.datetime.now()
-            elapsed = end_time - start_time
-            end_status = "✅ Fully Completed" if run_inference else "⏸️ Inference Skipped"
-            
-            end_banner = f"""---
-## 🎯 PIPELINE FINISHED                              
-                                                                        
-* **End Time:** {end_time.strftime('%H:%M:%S')}
-* **Total Elapsed Time:** {elapsed}
-* **Status:** {end_status}
-* **Total Enriched Media:** {media_get_media_count()}
-"""
-            print(end_banner)
+                # --- ETAPA 3.5: BERT CASCADE FILTER ---
+                t0 = time.time()
+                path_filtered = apply_bert_filter(path_multi)
+                dur = datetime.timedelta(seconds=time.time()-t0)
+                # O apply_bert_filter deve retornar contagens (ou pegamos de logs internos)
+                self._append_md_stage("3.5 Triagem em Cascata (BERTimbau)", {
+                    "Status": "Triagem Concluída",
+                    "Ação": "Marcação da flag 'needs_llama'"
+                }, dur)
 
-            with open(log_filename, "a", encoding="utf-8") as f:
-                f.write(end_banner)
+                # --- ETAPA 4: LLAMA INFERENCE ---
+                t0 = time.time()
+                orchestrate_full_inference(path_filtered)
+                dur = datetime.timedelta(seconds=time.time()-t0)
+                self._append_md_stage("4. Inferência Cognitiva (Llama-3)", {
+                    "Status": "Processamento Finalizado",
+                    "Score Normativo": "Calculado e Injetado"
+                }, dur)
 
+            self.finalize()
         except Exception as e:
-            error_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-            print(f"❌ FATAL ERROR: {e}")
-            with open(os.path.join(LOGGING_PATH, f"{error_time}_error.md"), "w", encoding="utf-8") as f:
-                f.write(f"# ❌ ERROR REPORT\n\n**Time:** {error_time}\n**Exception:** {e}\n")
-        finally:
-            if platform.system() == "Windows":
-                prevent_sleep_windows(enable=False)
+            self.logger.error(f"Erro Crítico: {e}", exc_info=True)
+            with open(self.log_filename, "a", encoding="utf-8") as f:
+                f.write(f"\n# ❌ ERRO FATAL\n{e}")
+
+    def finalize(self):
+        """Encerra a execução e gera o sumário final."""
+        end_time = datetime.datetime.now()
+        total_dur = end_time - self.start_time
+        summary = f"""---
+## 🏁 Pipeline Concluída
+* **Hora de Término:** {end_time.strftime('%H:%M:%S')}
+* **Tempo Total de Operação:** {total_dur}
+* **Status Final:** ✅ SUCESSO
+"""
+        with open(self.log_filename, "a", encoding="utf-8") as f:
+            f.write(summary)
+        
+        self.logger.info(f"Processamento concluído. Relatório disponível em: {self.log_filename}")
+        if platform.system() == "Windows":
+            prevent_sleep_windows(enable=False)
+
+# --- BLOCO DE EXECUÇÃO ---
+
+if __name__ == "__main__":
+    # Defina aqui os alvos do processamento massivo
+    LISTA_SUBS = ["opiniaoburra"] 
+    
+    orchestrator = RakedditOrchestrator(
+        subreddits=LISTA_SUBS, 
+        limit_per_sub=100
+    )
+    
+    orchestrator.run()

@@ -156,6 +156,17 @@ def run_inference_pipeline(jsonl_filepath, post_catalog):
             if current_id in processed_ids:
                 # Skips the AI but keeps count accurate
                 processed_count += 1
+            
+            elif not record.get('needs_llama', True):
+                # BERT marked as safe (Bypass)
+                # Fills with zeros and record directly
+                record['ai_analysis'] = {"f1": 0, "f2": 0, "f3": 0, "f4": 0, "f5": 0, "aggro": 0}
+                record['toxicity_score'] = 0.0
+                
+                out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                out_f.flush()
+                processed_count += 1
+                
             else:
                 # --- POST CONTEXT EXTRACTION ---
                 p_id = record['post_id']
