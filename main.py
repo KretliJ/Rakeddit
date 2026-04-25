@@ -15,16 +15,17 @@ from modules.processor import (
     media_get_media_count,
     media_get_processed_count
 )
-from modules.bert_filter import apply_bert_filter, bert_model
+from modules.bert_filter import apply_bert_filter, bert_model_name
 from modules.infer_engine import orchestrate_full_inference
 
 class RakedditOrchestrator:
     """
-    Gerencia a pipeline Rakeddit com foco em rastreabilidade e métricas acadêmicas.
+    Gerencia a pipeline Rakeddit com foco em rastreabilidade, métricas acadêmicas 
+    e tolerância a falhas (resume).
     """
     
-    def __init__(self, subreddits, limit_per_sub=100, category="top", timeframe="month"):
-        self.subreddits = subreddits
+    def __init__(self, subreddits=None, limit_per_sub=100, category="top", timeframe="month"):
+        self.subreddits = subreddits if subreddits else []
         self.limit = limit_per_sub
         self.category = category
         self.timeframe = timeframe
@@ -34,13 +35,13 @@ class RakedditOrchestrator:
         self.models = {
             "Main NLP": config.get('MODELS', 'MAIN_INFER'),
             "Vision": config.get('MODELS', 'IMAGE_READER'),
-            "Triage": bert_model # Definido no bert_filter
+            "Triage": bert_model_name # Definido no bert_filter
         }
         
         self.paths = {
             "base": config.get_path('PATHS', 'BASE_PATH'),
             "logs": config.get_path('PATHS', 'LOGGING_PATH'),
-            "reports": config.get_path('PATHS', 'LOGGING_PATH') # Relatórios .md ficam no mesmo lugar
+            "reports": config.get_path('PATHS', 'LOGGING_PATH')
         }
         
         self.log_filename = os.path.join(
@@ -77,7 +78,7 @@ class RakedditOrchestrator:
 * **Modelo de Triagem (BERT):** `{self.models['Triage']}`
 
 ## 🎯 Parâmetros de Coleta
-* **Subreddits:** {', '.join(self.subreddits)}
+* **Subreddits:** {', '.join(self.subreddits) if self.subreddits else 'N/A (Resume Mode)'}
 * **Limite por Sub:** {self.limit} posts
 * **Filtro Temporal:** {self.category} / {self.timeframe}
 
@@ -97,8 +98,64 @@ class RakedditOrchestrator:
         with open(self.log_filename, "a", encoding="utf-8") as f:
             f.write(content)
 
+    # --- MÉTODOS DE ETAPAS ISOLADAS ---
+    
+    def _run_step_3_5(self, path_multi):
+        """Executa a triagem com BERT, mas checa antes se já foi concluída."""
+        # Calcula qual seria o nome do arquivo de saída do BERT
+        base_dir = os.path.dirname(path_multi)
+        expected_filename = os.path.basename(path_multi).replace("MULTIMODAL_", "FILTERED_")
+        expected_path = os.path.join(base_dir, expected_filename)
+        
+        # --- CHECAGEM DE ESTADO: O trator já passou? ---
+        if os.path.exists(expected_path):
+            self.logger.info(f"🔍 Verificando integridade do cache BERT para: {expected_filename}")
+            
+            # Conta as linhas de forma eficiente
+            with open(path_multi, 'r', encoding='utf-8') as f_in, \
+                 open(expected_path, 'r', encoding='utf-8') as f_out:
+                linhas_in = sum(1 for _ in f_in)
+                linhas_out = sum(1 for _ in f_out)
+                
+            # Se o número de linhas bater, o arquivo já está 100% triado
+            if linhas_in == linhas_out and linhas_in > 0:
+                self.logger.info(f"✅ BERT já processou este arquivo ({linhas_out}/{linhas_in} registros). Pulando etapa 3.5!")
+                
+                # Registra no relatório MD que usamos o cache
+                self._append_md_stage("3.5 Triagem em Cascata (BERTimbau) [CACHED]", {
+                    "Status": "Pulado (Já processado em execução anterior)",
+                    "Arquivo Reutilizado": expected_filename
+                }, "0:00:00")
+                
+                return expected_path
+            else:
+                self.logger.warning(f"⚠️ Arquivo filtrado corrompido ou incompleto ({linhas_out}/{linhas_in} registros). O trator do BERT vai passar de novo.")
+
+        # Se não existe ou estava incompleto, roda a inferência normalmente
+        t0 = time.time()
+        path_filtered = apply_bert_filter(path_multi)
+        dur = datetime.timedelta(seconds=time.time()-t0)
+        self._append_md_stage("3.5 Triagem em Cascata (BERTimbau)", {
+            "Status": "Triagem Concluída",
+            "Ação": "Marcação da flag 'needs_llama'",
+            "Arquivo Gerado": os.path.basename(path_filtered)
+        }, dur)
+        
+        return path_filtered
+
+    def _run_step_4(self, path_filtered):
+        t0 = time.time()
+        orchestrate_full_inference(path_filtered)
+        dur = datetime.timedelta(seconds=time.time()-t0)
+        self._append_md_stage("4. Inferência Cognitiva (Llama-3)", {
+            "Status": "Processamento Finalizado",
+            "Score Normativo": "Calculado e Injetado"
+        }, dur)
+
+    # --- MÉTODOS DE EXECUÇÃO PRINCIPAL ---
+
     def run(self):
-        """Executa a pipeline completa iterando pelos subreddits."""
+        """Executa a pipeline completa do zero iterando pelos subreddits."""
         try:
             for sub in self.subreddits:
                 self.logger.info(f"🚀 Iniciando processamento de r/{sub}")
@@ -124,33 +181,45 @@ class RakedditOrchestrator:
                 dur = datetime.timedelta(seconds=time.time()-t0)
                 self._append_md_stage("3. Enriquecimento Multimodal (Vision AI)", {
                     "Total Comentários": media_get_processed_count(),
-                    "Imagens Encontradas": media_get_media_count()
+                    "Imagens Encontradas": media_get_media_count(),
+                    "Arquivo Gerado": os.path.basename(path_multi)
                 }, dur)
 
-                # --- ETAPA 3.5: BERT CASCADE FILTER ---
-                t0 = time.time()
-                path_filtered = apply_bert_filter(path_multi)
-                dur = datetime.timedelta(seconds=time.time()-t0)
-                # O apply_bert_filter deve retornar contagens (ou pegamos de logs internos)
-                self._append_md_stage("3.5 Triagem em Cascata (BERTimbau)", {
-                    "Status": "Triagem Concluída",
-                    "Ação": "Marcação da flag 'needs_llama'"
-                }, dur)
-
-                # --- ETAPA 4: LLAMA INFERENCE ---
-                t0 = time.time()
-                orchestrate_full_inference(path_filtered)
-                dur = datetime.timedelta(seconds=time.time()-t0)
-                self._append_md_stage("4. Inferência Cognitiva (Llama-3)", {
-                    "Status": "Processamento Finalizado",
-                    "Score Normativo": "Calculado e Injetado"
-                }, dur)
+                # Etapas finais
+                path_filtered = self._run_step_3_5(path_multi)
+                self._run_step_4(path_filtered)
 
             self.finalize()
         except Exception as e:
-            self.logger.error(f"Erro Crítico: {e}", exc_info=True)
-            with open(self.log_filename, "a", encoding="utf-8") as f:
-                f.write(f"\n# ❌ ERRO FATAL\n{e}")
+            self._handle_error(e)
+
+    def resume_pipeline(self, filepath):
+        """Retoma a execução a partir de um arquivo já processado parcialmente."""
+        self.logger.info(f"♻️ Retomando pipeline a partir do arquivo: {os.path.basename(filepath)}")
+        try:
+            filename = os.path.basename(filepath)
+            
+            if filename.startswith("MULTIMODAL_"):
+                self.logger.info("Iniciando a partir da Etapa 3.5 (BERT Filter)...")
+                path_filtered = self._run_step_3_5(filepath)
+                self._run_step_4(path_filtered)
+                
+            elif filename.startswith("FILTERED_"):
+                self.logger.info("Iniciando a partir da Etapa 4 (Llama-3 Inference)...")
+                self._run_step_4(filepath)
+                
+            else:
+                self.logger.error("Prefixo do arquivo não reconhecido para Resume. Use um arquivo MULTIMODAL_ ou FILTERED_.")
+                return
+
+            self.finalize()
+        except Exception as e:
+            self._handle_error(e)
+
+    def _handle_error(self, e):
+        self.logger.error(f"Erro Crítico: {e}", exc_info=True)
+        with open(self.log_filename, "a", encoding="utf-8") as f:
+            f.write(f"\n# ❌ ERRO FATAL\n{e}")
 
     def finalize(self):
         """Encerra a execução e gera o sumário final."""
@@ -172,12 +241,19 @@ class RakedditOrchestrator:
 # --- BLOCO DE EXECUÇÃO ---
 
 if __name__ == "__main__":
-    # Defina aqui os alvos do processamento massivo
-    LISTA_SUBS = ["opiniaoburra"] 
     
-    orchestrator = RakedditOrchestrator(
-        subreddits=LISTA_SUBS, 
-        limit_per_sub=100
-    )
+    # MODO 1: Rodar a pipeline do zero
+    MODO_RESUME = True
     
-    orchestrator.run()
+    if not MODO_RESUME:
+        LISTA_SUBS = ["opiniaoburra"] 
+        orchestrator = RakedditOrchestrator(subreddits=LISTA_SUBS, limit_per_sub=100)
+        orchestrator.run()
+        
+    # MODO 2: Retomar a partir de um arquivo de checkpoint (MULTIMODAL_ ou FILTERED_)
+    else:
+        # Substitua pelo caminho real gerado na sua pasta de logs/dados
+        ARQUIVO_ALVO = r"DATA\3-vision_processing\MULTIMODAL_OPINIAOBURRA_data_normalized_2026-04-24_17-52-21.jsonl"
+        
+        orchestrator = RakedditOrchestrator()
+        orchestrator.resume_pipeline(ARQUIVO_ALVO)

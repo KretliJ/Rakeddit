@@ -16,7 +16,7 @@ ollama.log
 *.jpg
 *.gif 
 *.mp4
-
+models/
 
 
 # Byte-compiled / optimized / DLL files
