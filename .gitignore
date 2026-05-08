@@ -18,6 +18,9 @@ ollama.log
 *.mp4
 models/
 
+# avoid uploading unfinished logs
+logging/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

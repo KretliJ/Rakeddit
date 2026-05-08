@@ -94,6 +94,6 @@ def prevent_sleep_windows(enable=True):
         )
         print("Sleep prevention ACTIVE")
     else:
-        # Restaura o comportamento padrão do sistema
+        # Restore default
         ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS)
         print("😴 Sleep prevention INACTIVE (might hibernate)")

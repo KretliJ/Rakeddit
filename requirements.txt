@@ -12,10 +12,11 @@ jsonlines>=4.0.0
 torch>=2.0.0
 transformers>=4.30.0
 
-# Optional - Future upgrades
+# Analytics
 scikit-learn>=1.8.0
 # python-dotenv>=1.0.0
 # jsonschema>=4.20.0
-# matplotlib>=3.7.0  # visualization
-# pandas>=2.0.0      # dataframe analysis
+matplotlib>=3.7.0  # visualization
+pandas>=2.0.0      # dataframe analysis
 # streamlit>=1.28.0  # dashboard
+seaborn>=0.13.2

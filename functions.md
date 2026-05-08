@@ -4,19 +4,40 @@
 
     [HEADERS]
     User-Agent = Research_Gentle_Harvesting_With_Jitter (contact: [YOUR EMAIL])
-    # CHANGE THIS TO REFLECT YOUR USE CASE
 
     [PATHS]
-    # CHANGE BASE_PATH IF YOU WANT TO DUMP FILES ELSEWHERE
-    BASE_PATH = ./DATA/json_dumps/
-    AGGREGATES_PATH = ./DATA/aggregates/
+    BASE_PATH = ./DATA/1-json_dumps/
+    AGGREGATES_PATH = ./DATA/2-aggregates/
     MEDIA_PATH = ./DATA/temp_media/
-    MULTIMODAL_PATH = ./DATA/vision_processing/
+    MULTIMODAL_PATH = ./DATA/3-vision_processing/
+    LOGGING_PATH = ./logging/
 
     [MODELS]
-    # CHANGE THESE TO USE DIFFERENT AGENTS
-    MAIN_INFER = llama3
-    IMAGE_READER = qwen3-vl:2b-instruct
+    MAIN_INFER = llama3:8b-instruct-q8_0
+    IMAGE_READER = qwen2.5-vl:3b
+
+### Enables or disables suspension prevention for Windows systems
+
+    prevent_sleep_windows(enable=True)
+    
+    # where: config_loader.py
+
+# Orchestration (main.py)
+
+### Manages the entire Rakeddit pipeline with traceability and telemetry
+
+    orchestrator = RakedditOrchestrator(subreddits, limit_per_sub, category, timeframe)
+
+    # where: main.py
+
+### Runs the full pipeline from Stage 1 to 4
+    
+    orchestrator.run()
+
+### Resumes the pipeline from a previously generated checkpoint file
+    
+    # filepath: Path to a MULTIMODAL_ or FILTERED_ .jsonl file
+    orchestrator.resume_pipeline(filepath)
 
 # Harvesting
 
@@ -30,13 +51,11 @@
 
 ### Second level auxiliary
     
-    # Saves post json in ./json_dumps/subreddit_name or .ini defined default
+    # Saves post json in ./json_dumps/subreddit_name
     # data: data in json
-
     save_post(data)
 
     # where: json_harvester.py
-    
 
 ### Harvests from chosen subreddit
     
@@ -44,99 +63,133 @@
     # category: string with category to search into (e.g. "top")
     # limit: maximum of posts to rake down the chain
     # timeframe: "today","month", "all"
-
     harvest_subreddit(subreddit_name, limit, category, timeframe)
 
     # where: json_harvester.py
-    
-### Flattens a comment tree using Depth-First Search
-
-    # folder_path: Base path for subreddit folder (e.g. './json_dumps/')
-    # limit: "none" to read all (default), or string with subreddit name (e.g. "anime")
-
-    extract_from_post(folder_path, limit="none")
-
-    # where: processor.py
 
 ### Downloads pictures and gifs
     
     # url: Source Reddit URL 
-
     downloader_function(url)
 
     # where: json_harvester.py
 
-# Computer Vision
+# Normalization & Graph Structuring
 
-### Flattens reddit proprietary formatting, downloads media and evokes AI
+### Flattens a comment tree using Depth-First Search and injects Graph variables
 
-    # body_text: '"body":' of a comment to be analyzed
-
-    process_visual_content(body_text)
+    # folder_path: Base path for subreddit folder
+    # limit: "none" to read all, or string with subreddit name
+    # Note: Adds 'depth', 'is_valid_text' flags, and a 'metadata_footer' for telemetry.
+    extract_from_post(folder_path, limit="none")
 
     # where: processor.py
-    # because me from yesterday thought just ignoring media wasn't painful enough
+
+### Retrieves extraction telemetry counts
+
+    get_processed_count()
+    
+    # where: processor.py
+
+# Computer Vision (Multimodal)
 
 ### Enriches the comment body with description of attached image  
     
     # jsonl_filepath: Base path for normalized (flattened) comments
-
     process_media(jsonl_filepath)
     
     # where: processor.py
-    
-# LLM prep and inference
 
-### Climbs tree from target_id using parent_id to assemble context (OPTIONAL - Recommended for big datasets) 
+### Flattens reddit proprietary formatting, downloads media and evokes AI
 
-    # target_id: target comment ID for tree rooting
-    # data_dict: normalized JSONL dictionary { 'id': { ... } }
-    # post_data: dictionary with original post data
+    # body_text: '"body":' of a comment to be analyzed
+    process_visual_content(body_text)
 
-    build_context_chain(target_id, data_dict, post_data)
-
-    # where: ai_manager.py
-
-### Structures prompts to be executed (Current version is specifically tuned to brazilian pages)
-
-    # context_chain: Contextual list with chain of comments
-    # target_comment_author: ID of what comment this is targeting
-    # target_comment_body: body of what comment this is targeting
-
-    prompt_maker(context_chain, target_comment_author, target_comment_body)
-
-    # where: ai_manager.py
-
-### Calculates normalized toxicity index based on binary classification.
-
-    # ai_response_dict: Dictionary containing LLM json response
-
-    calculate_toxicity(ai_response_dict)
-
-    # where: ai_manager.py
-
-    # 'f1': 'Incivility (rude, disrespectful tone, or insults)',
-    # 'f2': 'Deliberate Fallacies (intentional strawman, loaded question, or false dilemma — not honest mistakes)',
-    # 'f3': 'Ad Hominem (attacking the person instead of the argument), ONLY when attacking the specific commenter being replying to. Attacking a political figure or group belongs in f4 (Hate Speech) if dehumanizing, or nowhere if just criticism.',
-    # 'f4': 'Hate Speech (attacks on groups/identity or dehumanization)',
-    # 'f5': 'Sarcasm/Irony (saying the opposite of what you mean for effect, e.g., "Great job..." after a failure. Does NOT include: analogies, ellipses, rhetorical questions, or simple disagreement.)'
-    
+    # where: processor.py
 
 ### Uses AI defined in IMAGE_READER as a media interceptor
 
     # image_path: Media path in temp_media
     # extension: File type
     # model_name: Defined by IMAGE_READER by default
-
-    call_vision_ai(image_path, extension, model_name=IMAGE_READER):
+    call_vision_ai(image_path, extension, model_name=IMAGE_READER)
 
     # where: ai_manager.py
+
+### Retrieves multimodal telemetry counts
+
+    media_get_processed_count()
+    media_get_media_count()
+
+    # where: processor.py
+
+# Structural Analytics
+
+### Reads the dataset and calculates structural metrics per subreddit
+
+    # jsonl_path: Path from multimodal analysis
+    generate_cascade_stats(jsonl_path)
+    
+    # where: analytics.py
+
+### Generates comparative plots of Average Breadth vs Depth
+
+    # breadth_stats: DataFrame returned by generate_cascade_stats
+    plot_structural_signature(breadth_stats)
+    
+    # where: analytics.py
+
+# Cascade Inference (BERT Filter)
+
+### High-speed syntactic filter to prune non-toxic comments and save LLM inference time
+
+    # jsonl_filepath: Path from multimodal analysis
+    # threshold: Confidence score minimum to flag for LLM
+    # batch_size: Number of parallel sequences for GPU optimization
+    apply_bert_filter(jsonl_filepath, threshold=0.15, batch_size=32)
+
+    # where: bert_filter.py
+
+# LLM Inference & Toxicity
+
+### Climbs tree from target_id using parent_id to assemble context
+
+    # target_id: target comment ID for tree rooting
+    # data_dict: normalized JSONL dictionary { 'id': { ... } }
+    # post_data: dictionary with original post data
+    build_context_chain(target_id, data_dict, post_data)
+
+    # where: ai_manager.py
+
+### Structures prompts to be executed (Digital Forensic Auditor)
+
+    # context_chain: Contextual list with chain of comments
+    # target_comment_author: ID of what comment this is targeting
+    # target_comment_body: body of what comment this is targeting
+    # post_title: Original post title
+    # post_content: Original post body text
+    prompt_maker(context_chain, target_comment_author, target_comment_body, post_title, post_content)
+
+    # where: ai_manager.py
+
+### Calculates normalized toxicity index and dosimetry based on Penalty Law vectors.
+
+    # ai_response_dict: Dictionary containing LLM json response
+    calculate_toxicity(ai_response_dict)
+
+    # where: ai_manager.py
+
+    # 'f1': 'Profanity (explicit swear words, obscenities, or profane slurs)'
+    # 'f2': 'Threats (actionable promise to inflict physical or unjust damage)'
+    # 'f3': 'Insult/Ad Hominem (STRICTLY for direct attacks on an interlocutor's honor/character)'
+    # 'f4': 'Identity Hate (dehumanizing or segregating protected groups)'
+    # 'f5': 'Perturbation (functionally obstructive speech, spam, pure rage-bait, harassment)'
+    # 'aggro': 'Dosimetry multiplier (0 to 3 scale measuring intensity and intent)'
 
 ### Finds raw JSON in BASE_PATH and extracts post title and body
 
     # subreddit: String with subreddit name
     # post_id: post id related to the desided comment
-
     get_original_post_content(subreddit, post_id)
 
     # where: infer_engine.py
@@ -144,7 +197,6 @@
 ### Mock function for pipeline testing without inference
     
     # prompt: Structured prompt as seen from prompt_maker()
-    
     mock_local_ai(prompt)
 
     # where: infer_engine.py
@@ -153,24 +205,21 @@
 
     # prompt Structured prompt as seen from prompt_maker()
     # model_name: Defined by MAIN_INFER by default
-
     run_ai(prompt, model_name=MAIN_INFER)
 
     # where: infer_engine.py
 
 ### Orchestrates inference for consolidated datasets
 
-    # jsonl_filepath: Path from multimodal analysis
-    
+    # jsonl_filepath: Path from BERT filter analysis
     orchestrate_full_inference(jsonl_filepath)
 
     # where: infer_engine.py
 
 ### Reads dataset, reads post catalogue and propagates context to children
 
-    # jsonl_filepath: Path from multimodal analysis
+    # jsonl_filepath: Path from BERT filter analysis
     # post_catalog: Dictionary with (subreddit, post_id)
-    
     run_inference_pipeline(jsonl_filepath, post_catalog)
 
     # where: infer_engine.py
@@ -182,7 +231,6 @@
     # input_path: Relative path for input dataset
     # clean_path: Relative path for clean output dataset
     # dirty_path: Relative path for dirty output dataset
-
-    sanitize_dataset(input_path, clean_path, dirty_path):
+    sanitize_dataset(input_path, clean_path, dirty_path)
 
     # where: hallucination_sweep.py
