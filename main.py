@@ -60,7 +60,7 @@ class RakedditDatabaseBuilder:
     def _append_md_stage(self, sub, stage_name, metrics, duration):
         # Appends completed stage to report
         content = f"### r/{sub} - {stage_name}\n"
-        content += f"* **Processing Time:** {duration:.2f}s\n"
+        content += f"* **Runtime:** {duration:.2f}s\n"
         for key, value in metrics.items():
             content += f"* **{key}:** {value}\n"
         content += "\n"
@@ -85,7 +85,8 @@ class RakedditDatabaseBuilder:
                 dur1 = time.time() - t0
                 
                 self._append_md_stage(sub, "Step 1: Raw collection (Harvesting)", {
-                    "Status": "Completed"
+                    "Total posts found": "Check console logs", # Placeholder as harvesting doesn't return count directly here
+                    "Status": "Concluído"
                 }, dur1)
                 self.logger.info(f"[1/3] Completed in {dur1:.2f}s")
 
@@ -116,19 +117,17 @@ class RakedditDatabaseBuilder:
                 described_images = media_get_media_count()
                 vision_telemetry = get_vision_telemetry()
                 
-                # Montando o dicionário para o relatório MD
+                # Mount dictionary for MD report
                 step_3_telemetry = {
-                    "Total de Comentários Modificados": described_images,
-                    "Arquivo Final do Dataset": os.path.basename(path_multi)
+                    "Total Images Processed": described_images,
+                    "Average per Image": f"{vision_telemetry.get('AVERAGE TIME', 0)}s"
                 }
-                # Fundindo os dicionários (adiciona a telemetria avançada)
-                step_3_telemetry.update(vision_telemetry)
                 
-                self._append_md_stage(sub, "Step 3: Computer Vision", step_3_telemetry, dur3)
+                self._append_md_stage(sub, "Step 3: Vision AI", step_3_telemetry, dur3)
                 
-                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. AI Calls: {vision_telemetry['AI CALLS']}")
-                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Total Inference Time: {vision_telemetry['TOTAL INF TIME']}s")
-                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Average per image: {vision_telemetry['AVERAGE TIME']}s")
+                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. AI Calls: {vision_telemetry.get('AI CALLS', 0)}")
+                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Total Inference Time: {vision_telemetry.get('TOTAL INF TIME', 0)}s")
+                self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Average per image: {vision_telemetry.get('AVERAGE TIME', 0)}s")
                 self.logger.info(f"✅ Database for r/{sub} ready!")
             # Finalizing
             total_time = time.time() - self.start_time.timestamp()
@@ -145,20 +144,20 @@ class RakedditDatabaseBuilder:
                 
     def resume_visual(self, normalized_filepath, multimodal_filepath):
         """
-        Retoma a Etapa 3 (Visão Computacional) de onde parou.
-        1- Recebe o caminho do arquivo normalizado e do multimodal incompleto.
-        2- Compara onde parou.
-        3- Continua o processamento.
+        Resumes Step 3 (Computer Vision) from where it stopped.
+        1- Receives the normalized file path and the incomplete multimodal file path.
+        2- Compares where it stopped.
+        3- Continues processing.
         """
-        self.logger.info(f"♻️ Retomando Enriquecimento Visual...")
-        self.logger.info(f"   -> Arquivo Base: {os.path.basename(normalized_filepath)}")
-        self.logger.info(f"   -> Arquivo Incompleto: {os.path.basename(multimodal_filepath)}")
+        self.logger.info(f"♻️ Resuming Visual Enrichment...")
+        self.logger.info(f"   -> Base File: {os.path.basename(normalized_filepath)}")
+        self.logger.info(f"   -> Incomplete File: {os.path.basename(multimodal_filepath)}")
 
         if not os.path.exists(normalized_filepath):
-            self.logger.error("Arquivo normalizado não encontrado para resume.")
+            self.logger.error("Normalized file not found for resume.")
             return
 
-        # 1. Identificar onde parou
+        # 1. Identify where it stopped
         processed_ids = set()
         if os.path.exists(multimodal_filepath):
             with open(multimodal_filepath, 'r', encoding='utf-8') as f_multi:
@@ -169,17 +168,17 @@ class RakedditDatabaseBuilder:
                     except json.JSONDecodeError:
                         pass
         
-        self.logger.info(f"🔍 Encontrados {len(processed_ids)} registros já processados.")
+        self.logger.info(f"🔍 Found {len(processed_ids)} previously processed registries.")
 
-        # 2. Continuar de onde parou (Modo Append)
+        # 2. Continue from where it stopped (Append Mode)
         t0 = time.time()
 
-        # Resetar as contagens globais no processor
+        # Reset global counts in processor
         processor_module.media_processed_count = len(processed_ids)
-        processor_module.media_count = 0 # Contaremos apenas os *novos* enriquecimentos
+        processor_module.media_count = 0 # Count only *new* enrichments
 
         with open(normalized_filepath, 'r', encoding='utf-8') as f_in, \
-             open(multimodal_filepath, 'a', encoding='utf-8') as f_out: # Modo 'a' (Append)
+             open(multimodal_filepath, 'a', encoding='utf-8') as f_out: # Mode 'a' (Append)
             
             for line in f_in:
                 try:
@@ -187,13 +186,13 @@ class RakedditDatabaseBuilder:
                 except json.JSONDecodeError:
                     continue
 
-                # Pular se já foi processado
+                # Skip if already processed
                 if record.get('type') == 'metadata_footer' or 'id' not in record:
                     continue
                 if record['id'] in processed_ids:
                     continue
 
-                # 3. Processar o novo registro
+                # 3. Process new registry
                 original_body = record.get('body', '')
 
                 # "Fast Fail" optimization
@@ -205,32 +204,32 @@ class RakedditDatabaseBuilder:
                         processor_module.media_count += 1
                 
                 f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
-                f_out.flush() # Forçar a gravação no disco imediatamente!
+                f_out.flush() # Force write to disk immediately!
                 processor_module.media_processed_count += 1
                 
-                # Feedback a cada 10 registros novos processados
-                novos_processados = processor_module.media_processed_count - len(processed_ids)
-                if novos_processados % 10 == 0 and novos_processados > 0:
-                     self.logger.info(f"   ... Processados mais {novos_processados} registros. (Imagens: {processor_module.media_count})")
+                # Feedback every 10 new registries processed
+                new_processed = processor_module.media_processed_count - len(processed_ids)
+                if new_processed % 10 == 0 and new_processed > 0:
+                     self.logger.info(f"   ... Processed {new_processed} more registries. (Images: {processor_module.media_count})")
 
         dur = time.time() - t0
         
-        # Coletar telemetria do resume
-        imagens_descritas = processor_module.media_count
-        telemetria_visao = processor_module.get_vision_telemetry()
+        # Collect resume telemetry
+        described_images = processor_module.media_count
+        vision_telemetry = processor_module.get_vision_telemetry()
         
-        metricas_resume = {
-            "Registros Previamente Processados": len(processed_ids),
-            "Novas Imagens Interceptadas/Descritas": imagens_descritas,
-            "Arquivo Atualizado": os.path.basename(multimodal_filepath)
+        resume_metrics = {
+            "Previously Processed Registries": len(processed_ids),
+            "New Intercepted/Described Images": described_images,
+            "Updated File": os.path.basename(multimodal_filepath)
         }
-        metricas_resume.update(telemetria_visao)
+        resume_metrics.update(vision_telemetry)
         
-        # Como não sabemos o subreddit exato do resume sem olhar o JSON inteiro, usamos "RESUME"
-        self._append_md_stage("RESUME", "Etapa 3: Visão Computacional (Retomada)", metricas_resume, dur)
-        self.logger.info(f"✅ Resume concluído em {dur:.2f}s. Novas Imagens: {imagens_descritas}")
+        self._append_md_stage("RESUME", "Step 3: Vision AI (Resume)", resume_metrics, dur)
+        self.logger.info(f"✅ Resume finished in {dur:.2f}s. New Images: {described_images}")
         
         return multimodal_filepath
+
 if __name__ == "__main__":
     if sys.platform == "win32":
         prevent_sleep_windows(enable=True)
@@ -247,7 +246,7 @@ if __name__ == "__main__":
         else:
             builder = RakedditDatabaseBuilder(subreddits=[], limit=0)
             
-            # --- PREENCHA COM OS SEUS CAMINHOS REAIS ---
+            # --- FILL WITH YOUR REAL PATHS ---
             NORMALIZED_FILE = "./DATA/2-aggregates/BRASIL_data_normalized_2026-05-08_01-07-11.jsonl"
             INCOMPLETE_MULTI_FILE = "./DATA/3-vision_processing/MULTIMODAL_BRASIL_data_normalized_2026-05-08_01-07-11.jsonl"
             
