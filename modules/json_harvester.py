@@ -46,7 +46,13 @@ def save_post(data, base_path=BASE_PATH):
         os.makedirs(target_dir, exist_ok=True)
         
         filepath = os.path.join(target_dir, f"{post_id}.json")
-        
+
+        # --- duplicate verification ---
+        if os.path.exists(filepath):
+            print(f"   [SKIP] Post {post_id} alreado collected from {sub_name}.")
+            return 
+        # ------------------------------
+
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
             

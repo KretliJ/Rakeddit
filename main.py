@@ -7,8 +7,9 @@ import logging
 import platform
 from modules.config_loader import config, prevent_sleep_windows
 from modules.json_harvester import harvest_subreddit
-from modules.processor import extract_from_post, process_media, get_processed_count, media_get_media_count, get_vision_telemetry, process_visual_content
+from modules.processor import extract_from_post, process_media, get_processed_count, media_get_media_count, get_vision_telemetry, process_visual_content, write_metadata_footer, apply_youtube_cleanup_only
 import modules.processor as processor_module
+from modules.infer_engine import orchestrate_full_inference # ADICIONADO: Import do motor 
 
 class RakedditDatabaseBuilder:
     # Orchestrator focused on building and enriching a dataset
@@ -85,7 +86,7 @@ class RakedditDatabaseBuilder:
                 dur1 = time.time() - t0
                 
                 self._append_md_stage(sub, "Step 1: Raw collection (Harvesting)", {
-                    "Total posts found": "Check console logs", # Placeholder as harvesting doesn't return count directly here
+                    "Total posts found": "Check console logs", 
                     "Status": "Concluído"
                 }, dur1)
                 self.logger.info(f"[1/3] Completed in {dur1:.2f}s")
@@ -129,6 +130,7 @@ class RakedditDatabaseBuilder:
                 self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Total Inference Time: {vision_telemetry.get('TOTAL INF TIME', 0)}s")
                 self.logger.info(f"[3/3] Finished in {dur3:.2f}s. Average per image: {vision_telemetry.get('AVERAGE TIME', 0)}s")
                 self.logger.info(f"✅ Database for r/{sub} ready!")
+            
             # Finalizing
             total_time = time.time() - self.start_time.timestamp()
             summary = f"\n## 🏁 Final report\n* **Total processing time:** {total_time:.2f}s\n* **Status:** ✅ SUCCESS\n"
@@ -230,28 +232,137 @@ class RakedditDatabaseBuilder:
         
         return multimodal_filepath
 
+# ==========================================
+# HELPER DE MENU (OTIMIZAÇÃO)
+# ==========================================
+def pick_file_from_dir(directory):
+    """Função reutilizável para listar e selecionar arquivos .jsonl em um diretório."""
+    if not os.path.exists(directory):
+        print(f"❌ Diretório não encontrado: {directory}")
+        return None
+    
+    files = [f for f in os.listdir(directory) if f.endswith('.jsonl')]
+    
+    if not files:
+        print(f"❌ Nenhum arquivo .jsonl encontrado em {directory}.")
+        return None
+        
+    print("Arquivos disponíveis:")
+    for i, f in enumerate(files):
+        print(f"  [{i}] {f}")
+        
+    try:
+        f_idx = int(input("\nDigite o número do arquivo: ").strip())
+        return os.path.join(directory, files[f_idx])
+    except (ValueError, IndexError):
+        print("❌ Seleção inválida.")
+        return None
+
 if __name__ == "__main__":
     if sys.platform == "win32":
         prevent_sleep_windows(enable=True)
-    RESUME_FROM_STEP_3 = True
+        
     try:
-        if not RESUME_FROM_STEP_3:
-            SUBS = ["brasil"] 
-            LIMIT = 1000
-            CATEGORY = "top"
-            TIMEFRAME = "year" # today, week, month, year, all
+        print("\n" + "="*50)
+        print(" 🚀 RAKEDDIT ORCHESTRATOR - TERMINAL PoC ")
+        print("="*50)
+        print(" [1] INICIAR NOVA COLETA (Harvest -> Normalizar -> Vision)")
+        print(" [2] RETOMAR VISION AI (Escolher um arquivo específico)")
+        print(" [3] UNIFICAR TUDO (Junta todos os aggregates e roda Vision)")
+        print(" [4] YOUTUBE CLEANUP (Retroativo em arquivo específico)")
+        print(" [5] ESCREVER METADATA FOOTER (Recalcular em arquivo específico)")
+        print(" [6] INFERÊNCIA DE SENTIMENTO")
+        print("="*50)
+        
+        choice = input("Selecione uma opção (1-6): ").strip()
+        
+        if choice == '1':
+            print("\n--- Configuração de Nova Coleta ---")
+            subs_input = input("Subreddits (separados por vírgula): ").strip()
+            SUBS = [s.strip() for s in subs_input.split(",") if s.strip()]
+            
+            LIMIT = int(input("Limite de posts por sub (ex: 1000): ").strip())
+            CATEGORY = input("Categoria (top/new/hot) [Padrão: top]: ").strip() or "top"
+            TIMEFRAME = input("Período (day/week/month/year/all) [Padrão: year]: ").strip() or "year"
             
             builder = RakedditDatabaseBuilder(subreddits=SUBS, limit=LIMIT, category=CATEGORY, timeframe=TIMEFRAME)
             builder.run()
-        else:
+
+        elif choice == '2':
+            print("\n--- Retomar Processamento Vision AI ---")
+            aggs_dir = config.get_path('PATHS', 'AGGREGATES_PATH', fallback="./DATA/2-aggregates")
+            selected_file = pick_file_from_dir(aggs_dir)
+            
+            if selected_file:
+                vision_dir = config.get_path('PATHS', 'VISION_PATH', fallback="./DATA/3-vision_processing")
+                os.makedirs(vision_dir, exist_ok=True)
+                INCOMPLETE_MULTI_FILE = os.path.join(vision_dir, f"MULTIMODAL_{os.path.basename(selected_file)}")
+                
+                builder = RakedditDatabaseBuilder(subreddits=[], limit=0)
+                builder.resume_visual(selected_file, INCOMPLETE_MULTI_FILE)
+
+        elif choice == '3':
+            print("\n--- Unificação de Dataset ---")
+            aggs_dir = config.get_path('PATHS', 'AGGREGATES_PATH', fallback="./DATA/2-aggregates")
+            vision_dir = config.get_path('PATHS', 'VISION_PATH', fallback="./DATA/3-vision_processing")
+            os.makedirs(vision_dir, exist_ok=True)
+            
+            temp_file = os.path.join(vision_dir, "MULTIMODAL_TEMP.jsonl")
+            final_file = os.path.join(vision_dir, "MULTIMODAL_FINAL.jsonl")
+            
+            print(f"[*] Unificando arquivos de {aggs_dir}...")
+            files = [f for f in os.listdir(aggs_dir) if f.endswith('.jsonl')]
+            
+            total_records = 0
+            with open(temp_file, 'w', encoding='utf-8') as f_out:
+                for file_name in files:
+                    filepath = os.path.join(aggs_dir, file_name)
+                    with open(filepath, 'r', encoding='utf-8') as f_in:
+                        for line in f_in:
+                            if '"type": "metadata_footer"' not in line:
+                                f_out.write(line)
+                                total_records += 1
+                                
+            print(f"[+] Unificação concluída: {total_records} registros em {temp_file}")
+            
+            print("\n[*] Iniciando processamento de Mídia (Qwen)...")
             builder = RakedditDatabaseBuilder(subreddits=[], limit=0)
+            builder.resume_visual(temp_file, final_file)
+
+        elif choice == '4':
+            print("\n--- YouTube Cleanup Retroativo ---")
+            vision_dir = config.get_path('PATHS', 'VISION_PATH', fallback="./DATA/3-vision_processing")
+            selected_file = pick_file_from_dir(vision_dir)
             
-            # --- FILL WITH YOUR REAL PATHS ---
-            NORMALIZED_FILE = "./DATA/2-aggregates/BRASIL_data_normalized_2026-05-08_01-07-11.jsonl"
-            INCOMPLETE_MULTI_FILE = "./DATA/3-vision_processing/MULTIMODAL_BRASIL_data_normalized_2026-05-08_01-07-11.jsonl"
+            if selected_file:
+                output_file = selected_file.replace(".jsonl", "_YT_CLEANED.jsonl")
+                apply_youtube_cleanup_only(selected_file, output_file)
+
+        elif choice == '5':
+            print("\n--- Escrever/Recalcular Metadata Footer ---")
+            vision_dir = config.get_path('PATHS', 'VISION_PATH', fallback="./DATA/3-vision_processing")
+            selected_file = pick_file_from_dir(vision_dir)
             
-            builder.resume_visual(NORMALIZED_FILE, INCOMPLETE_MULTI_FILE)
+            if selected_file:
+                write_metadata_footer(selected_file)
+
+        elif choice == '6':
+            print("\n--- Inferência de Sentimento ---")
+            vision_dir = config.get_path('PATHS', 'VISION_PATH', fallback="./DATA/3-vision_processing")
+            selected_file = pick_file_from_dir(vision_dir)
+            
+            if selected_file:
+                orchestrate_full_inference(selected_file)
+
+        else:
+            print("Opção inválida. Encerrando.")
+
+    except ValueError:
+        print("❌ Erro de formatação no input (você digitou texto onde era número?). Encerrando.")
+    except IndexError:
+        print("❌ Número de arquivo selecionado é inválido. Encerrando.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ Erro Crítico no Orquestrador: {e}")
     finally:
         prevent_sleep_windows(enable=False)
+        print("\n👋 Sessão Encerrada.")

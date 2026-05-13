@@ -8,8 +8,10 @@ BASE_PATH = ./DATA/json_dumps/
 AGGREGATES_PATH = ./DATA/aggregates/
 MEDIA_PATH = ./DATA/temp_media/
 MULTIMODAL_PATH = ./DATA/vision_processing/
+INFERRED_PATH = ./DATA/4-inferred/
+LOGGING_PATH = ./logging/
 
 [MODELS]
 # CHANGE THESE TO USE DIFFERENT AGENTS
-MAIN_INFER = llama3
+MAIN_INFER = eduagarcia/bertimbau-large-sentiment-ptbr
 IMAGE_READER = qwen3-vl:2b-instruct

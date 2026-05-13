@@ -1,254 +1,198 @@
 import os
 import json
-import configparser
-import random
-import requests
-import re
-from collections import defaultdict
-from .ai_manager import prompt_maker, calculate_toxicity 
-
-# Global configs
+import torch
+from transformers import pipeline
 from modules.config_loader import config
 
-HEADERS = {'User-Agent': config.get('HEADERS', 'User-Agent')}
 BASE_PATH = config.get_path('PATHS', 'BASE_PATH') 
-MAIN_INFER = config.get('MODELS', 'MAIN_INFER')
+MAIN_INFER = config.get('MODELS', 'MAIN_INFER', fallback="cardiffnlp/twitter-xlm-roberta-base-sentiment")
 
 # ==========================================
-#  SUPPORT FUNCTIONS
+# DIAGNÓSTICO DE HARDWARE E INICIALIZAÇÃO
 # ==========================================
+print("\n" + "="*60)
+print(f" 🛠️  DIAGNÓSTICO DO MOTOR DE INFERÊNCIA (BATCH MODE) ")
+print("="*60)
+print(f" -> PyTorch Version: {torch.__version__}")
 
-def get_original_post_content(subreddit, post_id):
+cuda_available = torch.cuda.is_available()
+print(f" -> CUDA Disponível: {cuda_available}")
 
-    # Finds raw JSON in BASE_PATH and extracts post title and body
-    # Reminder: BASE_PATH comes from your config.ini
+if cuda_available:
+    device_id = 0
+    print(f" -> GPU Detectada: {torch.cuda.get_device_name(0)}")
+else:
+    device_id = -1
+    print(" [!] ALERTA: GPU não detectada. Rodando na CPU.")
 
-    target_path = os.path.join(BASE_PATH, subreddit, f"{post_id}.json")
-    
-    if not os.path.exists(target_path):
-        return f"[ORIGINAL POST NOT FOUND: {post_id}]"
+print(f" -> Carregando modelo: {MAIN_INFER}...")
+
+try:
+    sentiment_classifier = pipeline(
+        "sentiment-analysis", 
+        model=MAIN_INFER, 
+        tokenizer=MAIN_INFER, 
+        device=device_id, 
+        truncation=True, 
+        max_length=512
+    )
+    print(" [+] Modelo carregado com sucesso na VRAM!")
+except Exception as e:
+    print(f"\n[!!!] ERRO FATAL AO CARREGAR O MODELO [!!!]")
+    print(f"Detalhes do Erro: {e}")
+    sentiment_classifier = None
+
+print("="*60 + "\n")
+
+# ==========================================
+# MOTOR DE INFERÊNCIA EM LOTE (BATCHING)
+# ==========================================
+def analyze_batch_sentiment(texts, batch_size=64):
+    """Passa um lote (lista) de textos pela GPU simultaneamente."""
+    if not sentiment_classifier:
+        raise RuntimeError("Motor off")
+    if not texts:
+        return []
 
     try:
-        with open(target_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            post_data = data[0]['data']['children'][0]['data']
-            title = post_data.get('title', '')
-            selftext = post_data.get('selftext', '')
-            return f"{title}\n{selftext}".strip()
-    except Exception as e:
-        return f"[ERROR READING POST: {e}]"
-
-def mock_local_ai(prompt):
-    # This is just a mocking function to test the pipeline without LLM  
-    return {
-        "f1": random.choice([0, 1]),
-        "f2": random.choice([0, 1]),
-        "f3": random.choice([0, 1]),
-        "f4": random.choice([0, 1]),
-        "f5": random.choice([0, 1]),
-        "aggro": random.randint(0, 3)
-    }
-
-def run_ai(prompt, model_name=MAIN_INFER):
-    # Sends prompt to local Ollama API and ensures return of Python dictionary
-
-    url = "http://localhost:11434/api/generate"
-    
-    payload = {
-        "model": model_name,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json", 
-        "options": {
-            "temperature": 0.0,
-            "top_p": 0.9,      
-            "num_predict": 120, 
-            "seed": 42,
-            "stop": ["}\n", "} "] 
-        }
-    }
-
-    try:
-        # Long timeout to make up for local CPU/GPU inference delay
-        response = requests.post(url, json=payload, timeout=120)
-        response.raise_for_status() 
+        results = sentiment_classifier(texts, batch_size=batch_size)
         
-        raw_text = response.json().get("response", "")
-        
-        # Sanitizing: Removes markdown blocks if agent ignores format="json"
-        clean_text = re.sub(r"```json\n?|```", "", raw_text).strip()
-        
-        # Converts JSON string to a Python dictionary
-        result_dict = json.loads(clean_text)
-        return result_dict
-    except requests.exceptions.RequestException as e:
-        print(f"\n[NETWORK ERROR] Failed to get in touch with the local AI. Is Ollama running? Error: {e}")
-    except json.JSONDecodeError:
-        print(f"\n[PARSER ERROR] AI did not return a valid JSON. Raw output: {raw_text}")
-    except Exception as e:
-        print(f"\n[UNKNOWN AI ERROR] {e}")
-
-    # Fallback: If all else goes to hell, return zeroes not to break the entire pipeline
-    return {
-        "f1": 0, "f2": 0, "f3": 0, "f4": 0, "f5": 0, "aggro": 0
-    }
-
-# ==========================================
-# INFERENCE ENGINE
-# ==========================================
-def run_inference_pipeline(jsonl_filepath, post_catalog):
-    
-    # 1. Config and paths setup
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(current_dir, '..', 'config.ini') 
-    
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    INFERRED = config.get('PATHS', 'INFERRED_PATH', fallback="./DATA/4-inferred")    
-    
-    base = os.path.basename(jsonl_filepath)
-    out_path = os.path.join(INFERRED, f"INFERRED_{base}")
-
-    comments_dict = {}
-    children_map = defaultdict(list)
-    root_ids = []
-
-    # 2. Dataset reading
-    with open(jsonl_filepath, 'r', encoding='utf-8') as f:
-        for line in f:
-            record = json.loads(line)
-            comments_dict[record['id']] = record
-            if record['parent_id'] == record['post_id']:
-                root_ids.append(record['id'])
+        processed_results = []
+        for res in results:
+            label = res['label'].upper()
+            score = res['score']
+            
+            # --- NOVO MAPEAMENTO PARA BERTabaporu-Hate ---
+            # O modelo geralmente retorna "HATE" ou "NOT_HATE"
+            if label == "HATE" or label == "LABEL_1": 
+                tox_score = round(score, 3)
+            elif label == "NOT_HATE" or label == "LABEL_0":
+                # Se o modelo está confiante que NÃO é ódio, a toxicidade é o inverso da confiança
+                tox_score = round(1.0 - score, 3) 
+            # Fallback para o mapeamento antigo caso o pipeline retorne algo diferente
+            elif label in ["NEGATIVE", "NEGATIVO", "TOXIC", "1 STAR", "2 STARS"]:
+                tox_score = round(score, 3)
+            elif label in ["POSITIVE", "POSITIVO", "LABEL_2", "4 STARS", "5 STARS"]:
+                tox_score = round(1.0 - score, 3)
             else:
-                children_map[record['parent_id']].append(record['id'])
+                tox_score = 0.5 
+                
+            processed_results.append( ({"label": label, "confidence": round(score, 3)}, tox_score) )
+            
+        return processed_results
+        
+    except Exception as e:
+        print(f"\n[!] Falha no processamento do lote. Erro: {e}")
+        return [({"label": "ERROR", "confidence": 0.0}, 0.0) for _ in texts]
 
-    # 3. Crossing and inferencing (DFS)
-    stack = []
-    for r_id in reversed(root_ids):
-        # NEW: The context list starts empty. 
-        # The Post Context is injected directly into the prompt now.
-        stack.append((r_id, []))
 
-    total_to_process = len(comments_dict)
-    processed_count = 0
+def orchestrate_full_inference(jsonl_filepath):
+    if not sentiment_classifier:
+        print("❌ Orquestração cancelada: O Motor não está online.")
+        return
+        
+    print(f"\n[ORCHESTRATOR] Iniciando Análise Batched: {os.path.basename(jsonl_filepath)}")
+    
+    INFERRED = config.get_path('PATHS', 'INFERRED_PATH', fallback="./DATA/4-inferred")
+    os.makedirs(INFERRED, exist_ok=True)
+    out_path = os.path.join(INFERRED, f"INFERRED_{os.path.basename(jsonl_filepath)}")
 
-    # ==========================================
-    # CHECKPOINT: Recovery of previously processed data
-    # ==========================================
+    # --- RESUME LOGIC ---
     processed_ids = set()
     if os.path.exists(out_path):
         with open(out_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     record = json.loads(line)
-                    processed_ids.add(record['id'])
-                except json.JSONDecodeError:
-                    pass
-        print(f"\n[RESUME] Found {len(processed_ids)} already processed comments. Resuming where we left off...")
+                    if 'id' in record: processed_ids.add(record['id'])
+                except json.JSONDecodeError: pass
+        print(f"[RESUME] {len(processed_ids)} nós já classificados. Retomando...\n")
 
-    # (append) instead (write)
-    with open(out_path, "a", encoding="utf-8") as out_f:
-        while stack:
-            current_id, current_context_list = stack.pop()
-            record = comments_dict[current_id]
-            
-            if current_id in processed_ids:
-                # Skips the AI but keeps count accurate
-                processed_count += 1
-            
-            elif not record.get('needs_llama', True):
-                # BERT marked as safe (Bypass)
-                # Fills with zeros and record directly
-                record['ai_analysis'] = {"f1": 0, "f2": 0, "f3": 0, "f4": 0, "f5": 0, "aggro": 0}
-                record['toxicity_score'] = 0.0
-                
-                out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                out_f.flush()
-                processed_count += 1
-                
-            else:
-                # --- POST CONTEXT EXTRACTION ---
-                p_id = record['post_id']
-                p_data = post_catalog.get(p_id, {})
-                
-                # Handles both dict format {'title': '...', 'body': '...'} or flat string
-                if isinstance(p_data, dict):
-                    p_title = p_data.get('title', "Sem Título")
-                    p_body = p_data.get('body', "[Conteúdo Vazio / Imagem]")
-                else:
-                    p_title = "Sem Título"
-                    p_body = str(p_data)
-                
-                # TOKEN SAFEGUARD: Truncates long posts to prevent VRAM overflow
-                if len(p_body) > 600:
-                    p_body = p_body[:600] + "... [Truncado pelo Sistema]"
-
-                context_string = "\n".join(current_context_list)
-                
-                # --- AI BLOCK ---
-                # NOTE: You must update your 'prompt_maker' function signature to accept these new args!
-                prompt = prompt_maker(
-                    context_chain=context_string,
-                    target_comment_author=record['author'],
-                    target_comment_body=record['body'],
-                    post_title=p_title,
-                    post_content=p_body
-                )
-                
-                print(f"[INFO] Processing {processed_count + 1}/{total_to_process} | ID: {current_id}") 
-                
-                ai_response_json = run_ai(prompt)
-                tox_score = calculate_toxicity(ai_response_json)
-                
-                record['ai_analysis'] = ai_response_json
-                record['toxicity_score'] = tox_score
-                
-                out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                
-                # CRITICAL: Forces Python to write to disk immediately. 
-                # This allows safe stop for the script with Ctrl+C at any moment.
-                out_f.flush() 
-                
-                processed_count += 1
-            
-            # Propagation of context to children happens REGARDLESS of AI skipping
-            new_context_list = current_context_list.copy()
-            new_context_list.append(f"[{record['author']}]: {record['body']}")
-            
-            for child_id in reversed(children_map[current_id]):
-                stack.append((child_id, new_context_list))
-                
-    print(f"\n[SUCCESS] Multimodal dataset fully processed: {out_path}")
-
-def orchestrate_full_inference(jsonl_filepath):
-
-    # Orchestrates inference for consolidated datasets
-    # Identifies unique posts, looks for their bodies and executes analysis 
-    # - NOTE: never say this out of context
-
-    print(f"\n[ORCHESTRATOR] Analyzing dataset: {os.path.basename(jsonl_filepath)}")
+    # --- CONFIGURAÇÃO DO BATCH ---
+    BATCH_SIZE = 64  # Ajuste fino para a RTX 4060 Ti (Pode subir para 128 se a VRAM aguentar)
+    text_buffer = []
+    record_buffer = []
     
-    # 1. Identify all unique (subreddit, post_id) in file
-    post_targets = set()
-    try:
-        with open(jsonl_filepath, 'r', encoding='utf-8') as f:
-            for line in f:
+    total_processed_ai = 0
+    bypassed_count = 0
+
+    with open(jsonl_filepath, 'r', encoding='utf-8') as f_in, \
+         open(out_path, "a", encoding="utf-8") as f_out:
+        
+        for line in f_in:
+            try:
                 record = json.loads(line)
-                # Row (subreddit, post_id) to ensure unity
-                post_targets.add((record['subreddit'], record['post_id']))
-    except Exception as e:
-        print(f"[ERROR] Failed to read file for mapping: {e}")
-        return
+            except json.JSONDecodeError:
+                continue
+                
+            if record.get('type') == 'metadata_footer': continue
+                
+            record_id = record.get('id')
+            if not record_id or record_id in processed_ids: continue
 
-    print(f"[INFO] {len(post_targets)} unique posts identified in file.")
+            original_body = record.get('body', '')
+            body_text = original_body
+            
+            if record.get('type') == 'post_header':
+                title = record.get('title', '')
+                body_text = f"{title}. {body_text}".strip()
 
-    # 2. Create body catalogue { post_id: "body" }
-    post_catalog = {}
-    for sub, pid in post_targets:
-        print(f"   -> Seeking original content: {sub}/{pid}")
-        post_catalog[pid] = get_original_post_content(sub, pid)
+            # --- BYPASS E HEURÍSTICA ---
+            is_bypass = False
+            if original_body == '[removed]':
+                record['ai_analysis'] = {"label": "REMOVED_BY_MOD", "confidence": 1.0}
+                record['toxicity_score'] = 0.75  
+                is_bypass = True
+            elif original_body == '[deleted]':
+                record['ai_analysis'] = {"label": "USER_DELETED", "confidence": 1.0}
+                record['toxicity_score'] = 0.50  
+                is_bypass = True
+            elif original_body == '[AutoModerator]':
+                record['ai_analysis'] = {"label": "AUTOMOD_WARNING", "confidence": 1.0}
+                record['toxicity_score'] = 0.0
+                is_bypass = True
+            elif not record.get('is_valid_text', True) or not body_text:
+                record['ai_analysis'] = {"label": "BYPASS_EMPTY", "confidence": 0.0}
+                record['toxicity_score'] = 0.0
+                is_bypass = True
 
-    # 3. Run infer pipeline cycling through full catalogue
-    # We pass the entire 'post_catalog' dictionary    
-    run_inference_pipeline(jsonl_filepath, post_catalog)
+            if is_bypass:
+                # Escreve escapes imediatamente
+                f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                bypassed_count += 1
+                continue
+
+            # --- ADICIONA AO BUFFER DA GPU ---
+            text_buffer.append(body_text)
+            record_buffer.append(record)
+
+            # Quando o buffer enche, dispara o lote para a GPU
+            if len(text_buffer) >= BATCH_SIZE:
+                results = analyze_batch_sentiment(text_buffer, batch_size=BATCH_SIZE)
+                
+                # Mapeia resultados de volta aos registros e salva
+                for rec, (ai_data, tox_score) in zip(record_buffer, results):
+                    rec['ai_analysis'] = ai_data
+                    rec['toxicity_score'] = tox_score
+                    f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                
+                f_out.flush() # Salva no disco com segurança
+                total_processed_ai += len(text_buffer)
+                print(f" ⚡ GPU Batch Concluído -> AI: {total_processed_ai} | Heurísticas: {bypassed_count}")
+                
+                # Limpa os buffers
+                text_buffer.clear()
+                record_buffer.clear()
+
+        # --- PROCESSA O RESTO (Se o arquivo acabar antes de encher o buffer final) ---
+        if text_buffer:
+            results = analyze_batch_sentiment(text_buffer, batch_size=len(text_buffer))
+            for rec, (ai_data, tox_score) in zip(record_buffer, results):
+                rec['ai_analysis'] = ai_data
+                rec['toxicity_score'] = tox_score
+                f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            
+            total_processed_ai += len(text_buffer)
+            
+    print(f"\n[SUCCESS] Análise finalizada! IA Processou: {total_processed_ai} | Bypasses: {bypassed_count}")
+    print(f"Arquivo gerado em: {out_path}")

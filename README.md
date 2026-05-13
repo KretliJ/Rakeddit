@@ -12,7 +12,8 @@ WARNING:
 * Strictly for research purposes. This is designed to realistically handle up to 10,000 posts (or 1,000,000 data points).
 * This is designed to run over extended periods of time.
 * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
-    * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.
+  * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.
+
 ### [ EXECUTION SCRIPT ]
 
 #### STAGE 1: Subreddit Ingestion
@@ -29,7 +30,7 @@ Transforms the highly nested, raw JSON comment trees into a flat, relational str
 
 * **Mechanism:** Iterative Depth-First Search using a stack, preventing Python recursion limits on deep threads.
 * **Graph Integrity:** Injects a `post_header` as absolute root (`depth: 0`). Tracks exact detph for every comment with `is_valid_text` flag. Sanitizes AutoMod and deleted nodes to maintain `parent_id` connection wihout pulluting or breaking downstream context.
-* **Telemetry:** Injects `metadata_footer` calculating temporal boundaries (Unix and ISO 8601) 
+* **Telemetry:** Injects `metadata_footer` calculating temporal boundaries (Unix and ISO 8601)
 * **Storage:** Streams directly to JSON Lines (`.jsonl`) format, guaranteeing a reduced memory footprint regardless of dataset size.
 
 #### STAGE 3: Multimodal Context Enrichment
@@ -44,7 +45,8 @@ Sanitizes and processes visual media (JPEGs, PNGs, GIFs) into textual descriptio
 Analyzes the enriched dataset to generate the "Structural Signature" of the community.
 
 * **Mechanism:** Calculates Average Breadth per Depth and Average Max Depth.
-*  **Output:** Generates log-scale plots (Seaborn/Matplotlib) to visually compare debate persistence and reactivity across different subreddits.
+* **Output:** Generates log-scale plots (Seaborn/Matplotlib) to visually compare debate persistence and reactivity across different subreddits.
+
 ---
 
 ### [ USAGE ]
@@ -69,6 +71,7 @@ git clone [https://github.com/KretliJ/Rakeddit.git](https://github.com/KretliJ/R
 cd Rakeddit
 pip install -r requirements.txt
 ```
+
 #### 3. Local AI Provisioning (Ollama)
 
 ```bash
@@ -79,6 +82,7 @@ ollama pull llama3:8b-instruct-q8_0
 # Note: The 3B parameter version is optimized to leave VRAM headroom on 8GB GPUs.
 ollama pull qwen2.5vl:3b
 ```
+
 (Note: The BERTimbau / Toxicity model will be downloaded automatically via HuggingFace on the first run).
 
 #### 4. Configuration (config.ini)
@@ -103,6 +107,7 @@ LOGGING_PATH = ./logging/
 MAIN_INFER = llama3:8b-instruct-q8_0
 IMAGE_READER = qwen3-vl:2b-instruct
 ```
+
 #### 5. Execution
 
 With backend running and dependencies installed, trigger the orchestrator with:
@@ -110,7 +115,15 @@ With backend running and dependencies installed, trigger the orchestrator with:
 ```bash
 python main.py
 ```
+
 ### [ VERSION HISTORY ]
+
+* vertion 2.2.0 (Thesis Milestone Update)
+
+  * Analytics GUI automatic categories (4 sociologic types)
+  * Infer engine with batching and resume inteligente
+  * GNN GraphSAGE with structural features (degree, time, depth)
+  * Interactive orchestrator menu (6 operation modes)
 * version 2.0.0 (Graph Structure & Telemetry Update)
 
   * Objective changes made on main project pipeline
@@ -120,7 +133,6 @@ python main.py
   * Added metadata_footer for exact Unix-to-Human temporal windows at the EOF of datasets.
   * Added automated Markdown telemetry generation during database building.
   * Created analytics.py for calculating and plotting Average Breadth and Max Depth structural signatures.
-
 * version 1.3.0 (Cascade Architecture & OOP Refactoring)
 
   * Implemented Model Routing (BERT to Llama-3) to optimize VRAM and inference time.

@@ -1,6 +1,7 @@
 import os
 import json
 import configparser
+import glob
 import requests
 import re
 import subprocess
@@ -254,6 +255,10 @@ def process_visual_content(body_text):
     preview_pattern = r'https?://preview\.redd\.it/([a-zA-Z0-9_-]+\.(?:jpeg|jpg|png|gif))(?:\?[^\s\])]*)?'
     body_text = re.sub(preview_pattern, r'https://i.redd.it/\1', body_text)
 
+    # 2.5. Youtube Cleanup (ADICIONADO)
+    if "youtube" in body_text.lower() or "youtu.be" in body_text.lower():
+        body_text = process_youtube_links(body_text)
+
     # 3. URLs extraction
     media_pattern = r'(https?://\S+\.(?:jpg|jpeg|png|gif|mp4))'
     links = re.findall(media_pattern, body_text)
@@ -276,8 +281,10 @@ def process_visual_content(body_text):
         vision_ai_total_time += (t_end - t_start)
         vision_ai_calls += 1
         # --------------------------------------------------------
-
-        replacement_tag = f"[VISUAL CONTENT: {description}]"
+        if re.search(r'(.{3,10})\1{3,}', description):
+            description = "Imagem de reação ou explicação"
+   
+        replacement_tag = f"[CONTEUDO VISUAL: {description}]"
         body_text = body_text.replace(link, replacement_tag)
         
     return body_text.strip()
@@ -291,3 +298,271 @@ def get_vision_telemetry():
         "TOTAL INF TIME": round(vision_ai_total_time, 2),
         "AVERAGE TIME": round(avg_time, 2)
     }
+
+# ______________________________________________________________________________________________
+
+def process_multimodal_dataset(
+    aggregates_dir="DATA/2-aggregates", 
+    temp_file="DATA/3-vision_processing/MULTIMODAL_TEMP.jsonl", 
+    final_file="DATA/3-vision_processing/MULTIMODAL_FINAL.jsonl",
+    base_media_path="DATA/1-raw" # Ajuste para a pasta onde as imagens originais foram salvas
+):
+    """
+    Função End-to-End: Unifica, calcula metadados, processa Qwen (com resume) e salva.
+    """
+    
+    # =========================================================
+    # FASE 1 & 2: UNIFICAÇÃO E CÁLCULO DE METADADOS
+    # =========================================================
+    if not os.path.exists(temp_file):
+        print(f"[*] Iniciando unificação. Lendo de '{aggregates_dir}'...")
+        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
+        
+        files = glob.glob(os.path.join(aggregates_dir, "**", "*.json*"), recursive=True)
+        total_records = 0
+        timestamps = []
+        
+        with open(temp_file, 'w', encoding='utf-8') as f_out:
+            for file_path in files:
+                with open(file_path, 'r', encoding='utf-8') as f_in:
+                    try:
+                        data = json.load(f_in)
+                        if isinstance(data, dict): data = [data]
+                    except json.JSONDecodeError:
+                        f_in.seek(0)
+                        data = [json.loads(line) for line in f_in if line.strip()]
+
+                    for record in data:
+                        if record.get('type') == 'metadata_footer':
+                            continue
+                            
+                        f_out.write(json.dumps(record, ensure_ascii=False) + '\n')
+                        total_records += 1
+                        
+                        ts = record.get('created_utc') 
+                        if ts: timestamps.append(float(ts))
+
+        if timestamps:
+            unix_start, unix_end = min(timestamps), max(timestamps)
+            footer = {
+                "type": "metadata_footer",
+                "total_records": total_records,
+                "temporal_window": {
+                    "unix_start": unix_start,
+                    "unix_end": unix_end,
+                    "human_start": datetime.fromtimestamp(unix_start).strftime("%Y-%m-%d %H:%M:%S"),
+                    "human_end": datetime.fromtimestamp(unix_end).strftime("%Y-%m-%d %H:%M:%S"),
+                    "duration_days": round((unix_end - unix_start) / 86400, 2)
+                },
+                "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            with open(temp_file, 'a', encoding='utf-8') as f_out:
+                f_out.write(json.dumps(footer, ensure_ascii=False) + '\n')
+                
+        print(f"[+] Unificação concluída: {total_records} registros salvos no TEMP.")
+    else:
+        print(f"[*] Arquivo temporário já existe. Pulando etapa de unificação.")
+
+
+    # =========================================================
+    # FASE 3 & 4: RESUME E PROCESSAMENTO MULTIMODAL (QWEN)
+    # =========================================================
+    print(f"\n[*] Iniciando processamento de Mídia (Qwen) para '{final_file}'...")
+    
+    processed_ids = set()
+    if os.path.exists(final_file):
+        with open(final_file, 'r', encoding='utf-8') as f_final:
+            for line in f_final:
+                try:
+                    record = json.loads(line)
+                    if 'id' in record: processed_ids.add(record['id'])
+                except: continue
+        print(f"[RESUME] {len(processed_ids)} registros já processados serão ignorados.")
+
+    with open(temp_file, 'r', encoding='utf-8') as f_temp, \
+         open(final_file, 'a', encoding='utf-8') as f_out:
+        
+        for line in f_temp:
+            record = json.loads(line)
+            
+            if record.get('type') == 'metadata_footer':
+                f_out.write(json.dumps(record, ensure_ascii=False) + '\n')
+                continue
+                
+            record_id = record.get('id')
+            if record_id in processed_ids:
+                continue 
+                
+            # --- INTEGRAÇÃO DA SUA LÓGICA DO QWEN ---
+            # Só fazemos o esforço de buscar imagem se for um post raiz (comentários raramente têm mídia acoplada dessa forma no raw)
+            if record.get('type') == 'post_header' or 'url' in record:
+                sub_name = record.get('subreddit', 'unknown')
+                target_dir = os.path.join(base_media_path, sub_name)
+                
+                image_path = None
+                file_ext = ""
+                
+                # Tenta localizar a mídia física baixada pelo scraper
+                for ext in ['.jpg', '.png', '.jpeg', '.gif']:
+                    test_path = os.path.join(target_dir, f"{record_id}{ext}")
+                    if os.path.exists(test_path):
+                        image_path = test_path
+                        file_ext = ext
+                        break
+                
+                if image_path:
+                    print(f"   -> [QWEN VISION] Analisando imagem do post: {record_id}{file_ext}")
+                    # Chama a sua função importada do ai_manager
+                    description = call_vision_ai(image_path, file_ext)
+                    
+                    record['vision_description'] = description
+                    record['has_media'] = True
+                else:
+                    record['vision_description'] = None
+                    record['has_media'] = False
+            else:
+                record['vision_description'] = None
+                record['has_media'] = False
+
+            # Salva no arquivo final
+            f_out.write(json.dumps(record, ensure_ascii=False) + '\n')
+            f_out.flush() # Salva imediatamente no disco (Proteção contra crash)
+
+    print("\n[+] Processamento Multimodal finalizado com sucesso!")
+
+# ______________________________________________________________________________________________
+
+def get_youtube_title(url):
+    """Extrai o título de um vídeo do YouTube sem usar API oficial."""
+    try:
+        # User-agent para evitar bloqueios básicos
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            # Busca a tag <title>
+            match = re.search(r'<title>(.*?)</title>', r.text, re.IGNORECASE)
+            if match:
+                title = match.group(1)
+                # Limpa sufixos comuns do YouTube
+                clean_title = title.replace(' - YouTube', '').strip()
+                return clean_title
+    except Exception as e:
+        print(f"   [YT ERROR] Falha ao acessar {url}: {e}")
+        
+    return "Vídeo do YouTube (Título Indisponível)"
+
+# ______________________________________________________________________________________________
+
+def process_youtube_links(body_text):
+    """Localiza links de YouTube no corpo do texto e os substitui pelo título."""
+    # Regex para formatos comuns: youtube.com/watch?v=... e youtu.be/...
+    yt_pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https?://youtu\.be/[\w-]+)'
+    links = re.findall(yt_pattern, body_text)
+    
+    if not links:
+        return body_text
+
+    for link in set(links):
+        title = get_youtube_title(link)
+        replacement = f"[VIDEO: {title}]"
+        body_text = body_text.replace(link, replacement)
+        
+    return body_text
+
+# ______________________________________________________________________________________________
+
+def write_metadata_footer(jsonl_path):
+    """
+    Lê o arquivo final, calcula as métricas e anexa o footer no final.
+    Recebe apenas o caminho do arquivo para garantir autonomia.
+    """
+    import json
+    from datetime import datetime
+    
+    total_records = 0
+    timestamps = []
+    
+    # 1. Scan passivo para extração de métricas
+    if not os.path.exists(jsonl_path):
+        print(f"[ERROR] Arquivo não encontrado para gerar footer: {jsonl_path}")
+        return
+
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+                # Ignora footers antigos para evitar contagem duplicada ou erro de tipo
+                if record.get('type') == 'metadata_footer':
+                    continue
+                
+                total_records += 1
+                # Suporta tanto 'timestamp' quanto 'created_utc' conforme o padrão do dataset
+                ts = record.get('timestamp') or record.get('created_utc')
+                if ts:
+                    timestamps.append(float(ts))
+            except json.JSONDecodeError:
+                continue
+
+    if total_records == 0:
+        print("[WARN] Nenhum registro válido encontrado para gerar metadados.")
+        return
+
+    # 2. Cálculo de janelas temporais
+    min_ts = min(timestamps) if timestamps else 0
+    max_ts = max(timestamps) if timestamps else 0
+    
+    footer = {
+        "type": "metadata_footer",
+        "total_records": total_records,
+        "temporal_window": {
+            "unix_start": min_ts,
+            "unix_end": max_ts,
+            "human_start": datetime.fromtimestamp(min_ts).strftime('%Y-%m-%d %H:%M:%S') if min_ts else "N/A",
+            "human_end": datetime.fromtimestamp(max_ts).strftime('%Y-%m-%d %H:%M:%S') if max_ts else "N/A",
+            "duration_days": round((max_ts - min_ts) / 86400, 2) if min_ts and max_ts else 0
+        },
+        "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    # 3. Injeção final (Append mode)
+    with open(jsonl_path, 'a', encoding='utf-8') as f_out:
+        f_out.write(json.dumps(footer, ensure_ascii=False) + "\n")
+        
+    print(f"[INFO] Metadata Footer injetado com sucesso ({total_records} registros).")
+
+# ______________________________________________________________________________________________
+
+def apply_youtube_cleanup_only(input_path, output_path):
+    """
+    Passagem exclusiva para limpar links do YouTube em um dataset já processado.
+    """
+    import json
+    import os
+    from modules.processor import process_youtube_links # Importa a função que criamos
+
+    print(f"[*] Iniciando Retro-Cleanup de YouTube: {os.path.basename(input_path)}")
+    
+    with open(input_path, 'r', encoding='utf-8') as f_in, \
+         open(output_path, 'w', encoding='utf-8') as f_out:
+        
+        for line in f_in:
+            record = json.loads(line)
+            
+            # Pula metadados (serão recalculados no final)
+            if record.get('type') == 'metadata_footer':
+                continue
+                
+            body = record.get('body', '')
+            
+            # Verifica gatilho de link do YouTube
+            if "youtube" in body.lower() or "youtu.be" in body.lower():
+                # Esta função faz o download do título e substitui o link
+                record['body'] = process_youtube_links(body)
+                print(f"\nLink encontrado! Baixado de:" + body)
+            
+            f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+            
+    # Ao final, gera o novo footer de metadados
+    write_metadata_footer(output_path)
+    print(f"[+] Retro-Cleanup concluído: {output_path}")
