@@ -1,6 +1,6 @@
 import os
 import json
-import torch
+import torch # type: ignore
 from transformers import pipeline
 from modules.config_loader import config
 

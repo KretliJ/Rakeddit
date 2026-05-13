@@ -13,5 +13,5 @@ LOGGING_PATH = ./logging/
 
 [MODELS]
 # CHANGE THESE TO USE DIFFERENT AGENTS
-MAIN_INFER = eduagarcia/bertimbau-large-sentiment-ptbr
+MAIN_INFER = cardiffnlp/twitter-xlm-roberta-base-sentiment
 IMAGE_READER = qwen3-vl:2b-instruct
