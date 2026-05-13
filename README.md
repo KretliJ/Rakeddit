@@ -163,3 +163,14 @@ Rakeddit is provided "as is" for educational and research purposes only.
   applicable data protection laws (GDPR, LGPD, CCPA, etc.).
 - "Rakeddit" is a name. Not legal advice.
   - Because calling it a scraper isn't legally defensible (nor particularly truthful)
+
+### [ NOTES ]
+**Draft**
+The structural attention propagation effect described in Section X 
+was not part of the original hypothesis. It emerged from:
+
+1. A practical decision to process images because I had GPU idle time and the wish to improve precision with modest models
+2. A timing anomaly that initially appeared to be measurement error
+3. Approximately three hours of staring at a table until I stopped fighting the data and started listening to it
+
+Should I rename this whole thing to "Structural Attention Propagation via Multimodal Content Relevance in Social Media Cascades"? /jk
