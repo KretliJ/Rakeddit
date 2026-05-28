@@ -62,28 +62,14 @@ def analyze_batch_sentiment(texts, batch_size=64):
             label = res['label'].upper()
             score = res['score']
             
-            # --- NOVO MAPEAMENTO PARA BERTabaporu-Hate ---
-            # O modelo geralmente retorna "HATE" ou "NOT_HATE"
-            if label == "HATE" or label == "LABEL_1": 
-                tox_score = round(score, 3)
-            elif label == "NOT_HATE" or label == "LABEL_0":
-                # Se o modelo está confiante que NÃO é ódio, a toxicidade é o inverso da confiança
-                tox_score = round(1.0 - score, 3) 
-            # Fallback para o mapeamento antigo caso o pipeline retorne algo diferente
-            elif label in ["NEGATIVE", "NEGATIVO", "TOXIC", "1 STAR", "2 STARS"]:
-                tox_score = round(score, 3)
-            elif label in ["POSITIVE", "POSITIVO", "LABEL_2", "4 STARS", "5 STARS"]:
-                tox_score = round(1.0 - score, 3)
-            else:
-                tox_score = 0.5 
-                
-            processed_results.append( ({"label": label, "confidence": round(score, 3)}, tox_score) )
+            # Appends only label and confidence
+            processed_results.append({"label": label, "confidence": round(score, 3)})
             
         return processed_results
         
     except Exception as e:
         print(f"\n[!] Falha no processamento do lote. Erro: {e}")
-        return [({"label": "ERROR", "confidence": 0.0}, 0.0) for _ in texts]
+        return [{"label": "ERROR", "confidence": 0.0} for _ in texts]
 
 
 def orchestrate_full_inference(jsonl_filepath):
@@ -141,19 +127,15 @@ def orchestrate_full_inference(jsonl_filepath):
             is_bypass = False
             if original_body == '[removed]':
                 record['ai_analysis'] = {"label": "REMOVED_BY_MOD", "confidence": 1.0}
-                record['toxicity_score'] = 0.75  
                 is_bypass = True
             elif original_body == '[deleted]':
                 record['ai_analysis'] = {"label": "USER_DELETED", "confidence": 1.0}
-                record['toxicity_score'] = 0.50  
                 is_bypass = True
             elif original_body == '[AutoModerator]':
                 record['ai_analysis'] = {"label": "AUTOMOD_WARNING", "confidence": 1.0}
-                record['toxicity_score'] = 0.0
                 is_bypass = True
             elif not record.get('is_valid_text', True) or not body_text:
                 record['ai_analysis'] = {"label": "BYPASS_EMPTY", "confidence": 0.0}
-                record['toxicity_score'] = 0.0
                 is_bypass = True
 
             if is_bypass:
@@ -171,9 +153,8 @@ def orchestrate_full_inference(jsonl_filepath):
                 results = analyze_batch_sentiment(text_buffer, batch_size=BATCH_SIZE)
                 
                 # Mapeia resultados de volta aos registros e salva
-                for rec, (ai_data, tox_score) in zip(record_buffer, results):
+                for rec, ai_data in zip(record_buffer, results):
                     rec['ai_analysis'] = ai_data
-                    rec['toxicity_score'] = tox_score
                     f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 
                 f_out.flush() # Salva no disco com segurança
@@ -187,9 +168,8 @@ def orchestrate_full_inference(jsonl_filepath):
         # --- PROCESSA O RESTO (Se o arquivo acabar antes de encher o buffer final) ---
         if text_buffer:
             results = analyze_batch_sentiment(text_buffer, batch_size=len(text_buffer))
-            for rec, (ai_data, tox_score) in zip(record_buffer, results):
+            for rec, ai_data in zip(record_buffer, results):
                 rec['ai_analysis'] = ai_data
-                rec['toxicity_score'] = tox_score
                 f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
             
             total_processed_ai += len(text_buffer)

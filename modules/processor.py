@@ -247,9 +247,25 @@ def process_visual_content(body_text):
     if not body_text:
         return body_text
 
-    # 1. Giphy treatment
-    giphy_pattern = r'!\[gif\]\(giphy\|([a-zA-Z0-9]+)[^)]*\)'
+# 1. Giphy treatment (UPDATED: Catches both ![gif] and ![img] disguised giphys)
+    giphy_pattern = r'!\[(?:gif|img)\]\(giphy\|([a-zA-Z0-9]+)[^)]*\)'
     body_text = re.sub(giphy_pattern, r'https://i.giphy.com/\1.gif', body_text)
+
+    # 1.5. Subreddit Emotes (NEW: Safely flags custom server emojis without crashing the downloader)
+    emote_pattern = r'!\[(?:img|gif)\]\(emote\|[^)]+\)'
+    body_text = re.sub(emote_pattern, '[Reddit Emote]', body_text)
+
+    # ==========================================
+    # ---> NATIVE REDDIT MARKDOWN <---
+    # ==========================================
+    # Converts ![img](mvv0yl8plgnf1) -> https://i.redd.it/mvv0yl8plgnf1.jpeg
+    native_img_pattern = r'!\[img\]\(([a-zA-Z0-9]{10,20})\)'
+    body_text = re.sub(native_img_pattern, r'https://i.redd.it/\1.jpeg', body_text)
+    
+    # Converts ![gif](mvv0yl8plgnf1) -> https://i.redd.it/mvv0yl8plgnf1.gif
+    native_gif_pattern = r'!\[gif\]\(([a-zA-Z0-9]{10,20})\)'
+    body_text = re.sub(native_gif_pattern, r'https://i.redd.it/\1.gif', body_text)
+    # ==========================================
 
     # 2. Decompositon from preview.redd.it
     preview_pattern = r'https?://preview\.redd\.it/([a-zA-Z0-9_-]+\.(?:jpeg|jpg|png|gif))(?:\?[^\s\])]*)?'
@@ -456,8 +472,8 @@ def get_youtube_title(url):
 
 def process_youtube_links(body_text):
     """Localiza links de YouTube no corpo do texto e os substitui pelo título."""
-    # Regex para formatos comuns: youtube.com/watch?v=... e youtu.be/...
-    yt_pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https?://youtu\.be/[\w-]+)'
+    # Regex blindada: Pega www., m., sem subdomínio, watch?v=, youtu.be, shorts e TODOS os parâmetros (incluindo os escapados por &amp;)
+    yt_pattern = r'(https?://(?:m\.|www\.)?(?:youtube\.com/(?:watch\?.*v=|shorts/)|youtu\.be/)[a-zA-Z0-9_-]+(?:[^\s\])]*))'
     links = re.findall(yt_pattern, body_text)
     
     if not links:
@@ -466,6 +482,7 @@ def process_youtube_links(body_text):
     for link in set(links):
         title = get_youtube_title(link)
         replacement = f"[VIDEO: {title}]"
+        # Substitui a URL inteira (com a cauda de parâmetros) pela tag limpa
         body_text = body_text.replace(link, replacement)
         
     return body_text
@@ -566,3 +583,38 @@ def apply_youtube_cleanup_only(input_path, output_path):
     # Ao final, gera o novo footer de metadados
     write_metadata_footer(output_path)
     print(f"[+] Retro-Cleanup concluído: {output_path}")
+
+# ______________________________________________________________________________________________
+
+def apply_native_image_cleanup(input_path, output_path):
+    """
+    Surgical pass to catch only the missed ![img]() and ![gif]() markdown tags,
+    download them, send them to Qwen, and rewrite the final dataset.
+    """
+    import json
+    import os
+
+    print(f"[*] Initiating Retro-Vision for Native Reddit Images: {os.path.basename(input_path)}")
+    
+    with open(input_path, 'r', encoding='utf-8') as f_in, \
+         open(output_path, 'w', encoding='utf-8') as f_out:
+        
+        for line in f_in:
+            record = json.loads(line)
+            
+            if record.get('type') == 'metadata_footer':
+                continue
+                
+            body = record.get('body', '')
+            
+            # Fast-Fail: Only trigger the pipeline if the raw markdown is present
+            if "![img](" in body or "![gif](" in body:
+                print(f"\n[RETRO-VISION] Found missed native media tag. Evoking AI...")
+                # This will now successfully hit the new regex, download the image, and call Qwen
+                record['body'] = process_visual_content(body)
+            
+            f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+            
+    # Recalculate the metadata footer at the end
+    write_metadata_footer(output_path)
+    print(f"\n[+] Retro-Vision complete: {output_path}")

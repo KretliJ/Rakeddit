@@ -8,11 +8,14 @@ from PIL import Image
 from modules.config_loader import config
 
 IMAGE_READER = config.get('MODELS', 'IMAGE_READER', fallback="qwen3-vl:2b-instruct")
+FALLBACK_TEXT = "Imagem de reação ou explicação"
 
 def call_vision_ai(image_path, extension, model_name=IMAGE_READER):
+    # 1. Catch missing files
     if not image_path or not os.path.exists(image_path):
-        return f"({extension}) File not found."
+        return FALLBACK_TEXT
 
+    # 2. Catch corrupted images
     try:
         with Image.open(image_path) as img:
             if getattr(img, "is_animated", False):
@@ -26,7 +29,8 @@ def call_vision_ai(image_path, extension, model_name=IMAGE_READER):
             imagem_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
             
     except Exception as e:
-        return f"({extension}) Error sanitizing image: {e}"
+        print(f"   [AI ERROR] Image sanitization failed: {e}")
+        return FALLBACK_TEXT
 
     url = "http://localhost:11434/api/chat"
     current_prompt = (
@@ -64,8 +68,9 @@ def call_vision_ai(image_path, extension, model_name=IMAGE_READER):
             if attempt < max_attempts - 1:
                 time.sleep(30)
             else:
-                return "Re"
+                return FALLBACK_TEXT
         except Exception as e:
-            return f"({extension}) Error: {e}"
+            print(f"   [AI ERROR] Inference failed: {e}")
+            return FALLBACK_TEXT
 
-    return "Imagem de reação ou explicação"
+    return FALLBACK_TEXT
