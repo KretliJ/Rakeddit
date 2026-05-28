@@ -18,7 +18,7 @@ from collections import defaultdict, Counter
 MULTIMODAL_FILE = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
 
 # O Dataset Cego Inferido (Substitua pelo nome real gerado pela sua pipeline)
-BLIND_FILE = "DATA/4-inferred/INFERRED_PERFECT_BLIND_DATASET.jsonl" 
+BLIND_FILE = "DATA/4-inferred/INFERRED_BLIND_DATASET.jsonl" 
 
 OUTPUT_CSV = "DATA/4-inferred/results_vision_delta_by_subreddit.csv"
 

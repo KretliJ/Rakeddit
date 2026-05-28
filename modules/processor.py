@@ -471,9 +471,9 @@ def get_youtube_title(url):
 # ______________________________________________________________________________________________
 
 def process_youtube_links(body_text):
-    """Localiza links de YouTube no corpo do texto e os substitui pelo título."""
-    # Regex blindada: Pega www., m., sem subdomínio, watch?v=, youtu.be, shorts e TODOS os parâmetros (incluindo os escapados por &amp;)
-    yt_pattern = r'(https?://(?:m\.|www\.)?(?:youtube\.com/(?:watch\?.*v=|shorts/)|youtu\.be/)[a-zA-Z0-9_-]+(?:[^\s\])]*))'
+    """Locates YouTube links and replaces them with the extracted title."""
+    # Matches youtube.com, m.youtube.com, www.youtube.com, youtu.be, and shorts.
+    yt_pattern = r'(https?://(?:m\.|www\.)?(?:youtube\.com/(?:watch\?.*v=|shorts/|embed/)|youtu\.be/)[a-zA-Z0-9_-]+(?:[^\s\])]*))'
     links = re.findall(yt_pattern, body_text)
     
     if not links:
@@ -482,7 +482,6 @@ def process_youtube_links(body_text):
     for link in set(links):
         title = get_youtube_title(link)
         replacement = f"[VIDEO: {title}]"
-        # Substitui a URL inteira (com a cauda de parâmetros) pela tag limpa
         body_text = body_text.replace(link, replacement)
         
     return body_text
@@ -490,17 +489,13 @@ def process_youtube_links(body_text):
 # ______________________________________________________________________________________________
 
 def write_metadata_footer(jsonl_path):
-    """
-    Lê o arquivo final, calcula as métricas e anexa o footer no final.
-    Recebe apenas o caminho do arquivo para garantir autonomia.
-    """
     import json
     from datetime import datetime
+    import os
     
     total_records = 0
     timestamps = []
     
-    # 1. Scan passivo para extração de métricas
     if not os.path.exists(jsonl_path):
         print(f"[ERROR] Arquivo não encontrado para gerar footer: {jsonl_path}")
         return
@@ -509,12 +504,10 @@ def write_metadata_footer(jsonl_path):
         for line in f:
             try:
                 record = json.loads(line)
-                # Ignora footers antigos para evitar contagem duplicada ou erro de tipo
                 if record.get('type') == 'metadata_footer':
                     continue
                 
                 total_records += 1
-                # Suporta tanto 'timestamp' quanto 'created_utc' conforme o padrão do dataset
                 ts = record.get('timestamp') or record.get('created_utc')
                 if ts:
                     timestamps.append(float(ts))
@@ -522,13 +515,12 @@ def write_metadata_footer(jsonl_path):
                 continue
 
     if total_records == 0:
-        print("[WARN] Nenhum registro válido encontrado para gerar metadados.")
         return
 
-    # 2. Cálculo de janelas temporais
     min_ts = min(timestamps) if timestamps else 0
     max_ts = max(timestamps) if timestamps else 0
     
+    # Exact requested structure
     footer = {
         "type": "metadata_footer",
         "total_records": total_records,
@@ -536,17 +528,15 @@ def write_metadata_footer(jsonl_path):
             "unix_start": min_ts,
             "unix_end": max_ts,
             "human_start": datetime.fromtimestamp(min_ts).strftime('%Y-%m-%d %H:%M:%S') if min_ts else "N/A",
-            "human_end": datetime.fromtimestamp(max_ts).strftime('%Y-%m-%d %H:%M:%S') if max_ts else "N/A",
-            "duration_days": round((max_ts - min_ts) / 86400, 2) if min_ts and max_ts else 0
+            "human_end": datetime.fromtimestamp(max_ts).strftime('%Y-%m-%d %H:%M:%S') if max_ts else "N/A"
         },
         "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     
-    # 3. Injeção final (Append mode)
     with open(jsonl_path, 'a', encoding='utf-8') as f_out:
         f_out.write(json.dumps(footer, ensure_ascii=False) + "\n")
         
-    print(f"[INFO] Metadata Footer injetado com sucesso ({total_records} registros).")
+    print(f"[INFO] Metadata Footer injected ({total_records} records).")
 
 # ______________________________________________________________________________________________
 
