@@ -25,33 +25,41 @@ MULTIMODAL = config.get_path('PATHS', 'MULTIMODAL_PATH')
 
 def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
     global processed_count
-    # Flattens a comment tree using Depth-First Search.
-    # folder_path: Base path for subreddit folder (e.g. './json_dumps/')
-    # limit: "none" to read all (default), or string with subreddit name (e.g. "anime")
     
-    # Choose which folders to seek based on limit
+    # 1. Defend the target folders list
     target_folders = []
     if limit.lower() == "none":
-        target_folders = [os.path.join(folder_path, d) for d in os.listdir(folder_path) 
-                          if os.path.isdir(os.path.join(folder_path, d))]
+        if os.path.exists(folder_path):
+            target_folders = [os.path.join(folder_path, d) for d in os.listdir(folder_path) 
+                              if os.path.isdir(os.path.join(folder_path, d))]
     else:
         target_folders = [os.path.join(folder_path, limit)]
 
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    # Write new structured JSONL (JSON Lines)
+    
+    # 2. Force creation of the output directory before opening the file
+    os.makedirs(aggregates_dir, exist_ok=True)
+    
+    # Write new structured JSONL (JSON Lines) safely
     if limit != "none":
-        out_file = f"{aggregates_dir}/{limit.upper()}_data_normalized_" + current_time + ".jsonl"
+        out_file = os.path.join(aggregates_dir, f"{limit.upper()}_data_normalized_{current_time}.jsonl")
     else:
-        out_file = f"{aggregates_dir}FULL_data_normalized_" + current_time + ".jsonl"
+        out_file = os.path.join(aggregates_dir, f"FULL_data_normalized_{current_time}.jsonl")
 
     print(f"\n[INFO] Data extraction started. Streaming to: {out_file}")
 
     processed_count = 0
     min_ts = float('inf')
     max_ts = float('-inf')
+    
     # Open output file once, append line by line
     with open(out_file, 'w', encoding='utf-8') as f_out:
         for folder in target_folders:
+            # 3. DEFENSIVE CHECK: Skip if folder doesn't exist
+            if not os.path.exists(folder) or not os.path.isdir(folder):
+                print(f"[WARNING] ⚠️ Source folder not found or invalid: {folder}. Skipping extraction.")
+                continue
+                
             for filename in os.listdir(folder):
                 if filename.endswith(".json"):
                     filepath = os.path.join(folder, filename)
@@ -61,10 +69,12 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
                             post_data = data[0]['data']['children'][0]['data']
                             comments_data = data[1]['data']['children']
                         except: continue
+                    
                     ts = post_data.get('created_utc')
                     if ts:
                         min_ts = min(min_ts, ts)
                         max_ts = max(max_ts, ts)
+                        
                     # --- 1. POST HEADER INSERTION (DEPTH 0) ---
                     post_record = {
                         "type": "post_header",
@@ -76,14 +86,13 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
                         "timestamp": post_data['created_utc'],
                         "title": post_data.get('title', ''),
                         "body": post_data.get('selftext', ''),
-                        "depth": 0, # Raiz da cascata
+                        "depth": 0,
                         "metadata_score": post_data.get('score', 0)
                     }
                     f_out.write(json.dumps(post_record, ensure_ascii=False) + "\n")
                     processed_count += 1
 
                     # --- 2. DFS COM RASTREAMENTO DE PROFUNDIDADE ---
-                    # O stack agora guarda (objeto_comentario, id_do_pai, profundidade)
                     stack = []
                     for c in reversed(comments_data):
                         if c.get('kind') == 't1':
@@ -96,7 +105,6 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
                         c_author = c_data.get('author', '[deleted]')    
                         c_body = c_data.get('body', '[empty]')
 
-                        # We don't need automod or removed comments, but they must stay not to break the graphs
                         if c_author.lower() == "automoderator":
                             c_body = "[AutoModerator]"
 
@@ -128,7 +136,6 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
                             children = replies['data']['children']
                             for r in reversed(children):
                                 if r.get('kind') == 't1':
-                                    # Incrementa a profundidade para os filhos
                                     stack.append((r, c_data.get('id'), current_depth + 1))
                         
         if processed_count > 0:
@@ -140,7 +147,7 @@ def extract_from_post(folder_path, limit="none", aggregates_dir=AGGREGATES):
                     "unix_end": max_ts,
                     "human_start": datetime.fromtimestamp(min_ts).strftime('%Y-%m-%d %H:%M:%S'),
                     "human_end": datetime.fromtimestamp(max_ts).strftime('%Y-%m-%d %H:%M:%S'),
-                    "duration_days": round((max_ts - min_ts) / 86400, 2)
+                    "duration_days": round((max_ts - min_ts) / 86400, 2) if min_ts != float('inf') else 0
                 },
                 "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
@@ -172,8 +179,10 @@ def process_media(jsonl_filepath):
     
     base = os.path.basename(jsonl_filepath)
     file_name = f"MULTIMODAL_{base}"
+    
+    # FORCE DIRECTORY CREATION BEFORE ASSIGNING PATH
+    os.makedirs(MULTIMODAL, exist_ok=True)
     out_path = os.path.join(MULTIMODAL, file_name)
-
     print(f"\n[INFO] Initiating enriching pipeline.")
     print(f"[INFO] Reading: {base}")
     

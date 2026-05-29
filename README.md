@@ -9,10 +9,11 @@ Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral
 
 WARNING:
 
-* Strictly for research purposes. This is designed to realistically handle up to 10,000 posts (or 1,000,000 data points).
+* Strictly for research purposes. This is designed to realistically handle up to 1,000,000 data points.
 * This is designed to run over extended periods of time.
 * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
   * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.
+* This caused my IP to get a long-term cooldown from reddit's servers, so use this with caution.
 
 ### [ EXECUTION SCRIPT ]
 
@@ -118,7 +119,13 @@ python main.py
 
 ### [ VERSION HISTORY ]
 
-* vertion 2.2.0 (Thesis Milestone Update)
+* version 3.1.0 (Analysis Update)
+
+  * Final analytics pipeline build
+  * Replaced CSVs with RAM DataFrames
+  * Direct export to PNG & PDF
+  * Improved resume state to main pipeline in main.py
+* version 2.2.0 (Thesis Milestone Update)
 
   * Analytics GUI automatic categories (4 sociologic types)
   * Infer engine with batching and resume inteligente
@@ -165,8 +172,9 @@ Rakeddit is provided "as is" for educational and research purposes only.
   - Because calling it a scraper isn't legally defensible (nor particularly truthful)
 
 ### [ NOTES ]
+
 **Draft**
-The structural attention propagation effect described in Section X 
+The structural attention propagation effect described in Section X
 was not part of the original hypothesis. It emerged from:
 
 1. A practical decision to process images because I had GPU idle time and the wish to improve precision with modest models

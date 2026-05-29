@@ -16,22 +16,42 @@ IMAGES = config.get_path('PATHS', 'MEDIA_PATH')
 # ______________________________________________________________________________________________
 # Lowest level auxiliary. Extracts a JSON reddit endpoint response
 
+from curl_cffi import requests as requests_cffi
+
 def get_json(url, max_retries=5):
-    base_delay = 1  # 1 s
-    max_delay = 2000  # max 33 minutes
+    base_delay = 2
+    max_delay = 30
     
     for attempt in range(max_retries):
-        response = requests.get(url, headers=HEADERS)
-        
-        if response.status_code == 200:
-            return response.json()
-        
-        elif response.status_code == 429:
-            # Exponencial clássico: 1, 2, 4, 8, 16
-            wait = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
-            print(f"Rate limit! Waiting {wait}s (tentativa {attempt+1}/{max_retries})")
-            time.sleep(wait)
-    
+        try:
+            # O pulo do gato: impersonate="chrome120" força a biblioteca a imitar
+            # perfeitamente o handshake TLS/JA3 do Google Chrome legítimo.
+            response = requests_cffi.get(
+                url, 
+                impersonate="chrome120", 
+                timeout=20
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            
+            elif response.status_code == 429:
+                wait = min(base_delay * (2 ** attempt) + random.uniform(1, 3), max_delay)
+                print(f"   [429 Rate Limit] Reddit a pedir calma. A aguardar {wait:.1f}s...")
+                time.sleep(wait)
+                
+            elif response.status_code == 403:
+                print(f"   [403 Forbidden] Bloqueio de segurança ativo na tentativa {attempt+1}.")
+                time.sleep(5) # Delay de respiro para a rota da VPN
+                
+            else:
+                print(f"   [!] Erro de ligação: HTTP {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"   [Erro de Rede] Falha na requisição: {e}")
+            time.sleep(3)
+            
     return None
 
 # ______________________________________________________________________________________________
