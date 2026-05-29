@@ -41,13 +41,13 @@ Sanitizes and processes visual media (JPEGs, PNGs, GIFs) into textual descriptio
 * **Mechanism:** in-RAM image interceptor (Pillow) flattens alpha channels and animated frames, resizing media to prevent Out-of-Memory errors.
 * **Vision Engine:** Connects to local Small Vision Language Models (e.g., Qwen2.5-VL via Ollama) via strict protocol validation to extract textual content and visual context.
 
-#### STAGE X: Analytics
+#### STAGE 4: Analytics
 
 Analyzes the enriched dataset to generate the "Structural Signature" of the community.
 
 * **Mechanism:** Calculates Average Breadth per Depth and Average Max Depth.
 * **Output:** Generates log-scale plots (Seaborn/Matplotlib) to visually compare debate persistence and reactivity across different subreddits.
-
+* To be expanded
 ---
 
 ### [ USAGE ]
@@ -106,6 +106,7 @@ LOGGING_PATH = ./logging/
 [MODELS]
 # CHANGE THESE TO USE DIFFERENT AGENTS
 MAIN_INFER = llama3:8b-instruct-q8_0
+MAIN_INFER = cardiffnlp/twitter-xlm-roberta-base-sentiment
 IMAGE_READER = qwen3-vl:2b-instruct
 ```
 
@@ -174,11 +175,8 @@ Rakeddit is provided "as is" for educational and research purposes only.
 ### [ NOTES ]
 
 **Draft**
-The structural attention propagation effect described in Section X
-was not part of the original hypothesis. It emerged from:
+A structural attention propagation effect found during secondary validation with a GNN was not part of the original hypothesis. It emerged from:
 
 1. A practical decision to process images because I had GPU idle time and the wish to improve precision with modest models
 2. A timing anomaly that initially appeared to be measurement error
 3. Approximately three hours of staring at a table until I stopped fighting the data and started listening to it
-
-Should I rename this whole thing to "Structural Attention Propagation via Multimodal Content Relevance in Social Media Cascades"? /jk
