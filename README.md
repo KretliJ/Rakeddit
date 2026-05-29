@@ -76,12 +76,11 @@ pip install -r requirements.txt
 #### 3. Local AI Provisioning (Ollama)
 
 ```bash
-# Pull the Main Inference Engine (Text / NLP)
-ollama pull llama3:8b-instruct-q8_0
+# Pull the main inference engine if you wish to use it later
+ollama pull cardiffnlp/twitter-xlm-roberta-base-sentiment
 
 # Pull the Image Reader Engine (Vision / OCR)
-# Note: The 3B parameter version is optimized to leave VRAM headroom on 8GB GPUs.
-ollama pull qwen2.5vl:3b
+ollama pull qwen3-vl:2b-instruct
 ```
 
 (Note: The BERTimbau / Toxicity model will be downloaded automatically via HuggingFace on the first run).
@@ -105,7 +104,6 @@ LOGGING_PATH = ./logging/
 
 [MODELS]
 # CHANGE THESE TO USE DIFFERENT AGENTS
-MAIN_INFER = llama3:8b-instruct-q8_0
 MAIN_INFER = cardiffnlp/twitter-xlm-roberta-base-sentiment
 IMAGE_READER = qwen3-vl:2b-instruct
 ```
