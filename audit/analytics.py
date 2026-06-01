@@ -2,18 +2,18 @@ import json
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patheffects as path_effects
-import matplotlib.ticker as mtick
-import matplotlib.patheffects as pe
-import seaborn as sns
+import matplotlib.pyplot as plt # type: ignore
+import matplotlib.patheffects as path_effects # type: ignore
+import matplotlib.ticker as mtick # type: ignore
+import matplotlib.patheffects as pe # type: ignore
+import seaborn as sns # type: ignore
 from collections import defaultdict, Counter
 from scipy.stats import kruskal, sem
-import scikit_posthocs as sp
+import scikit_posthocs as sp # type: ignore
 from scipy.stats import kruskal, sem, linregress
 
 try:
-    from adjustText import adjust_text
+    from adjustText import adjust_text # type: ignore
 except ImportError:
     adjust_text = None
     print("[!] Warning: 'adjustText' not installed. Labels might overlap. (pip install adjustText)")
@@ -498,11 +498,10 @@ class RakedditAnalyticsOrchestrator:
         print(f"[SUCCESS] NLP Validation saved in '{out_file}'")
 
     # =========================================================================
-    # VI. DESCOBERTA COMPORTAMENTAL ESTENDIDA (CURVAS POR CASCATA)
+    # VI. DESCOBERTA COMPORTAMENTAL ESTENDIDA (8 CURVAS INDIVIDUAIS)
     # =========================================================================
     def plot_behavioral_ccdf(self):
-        print("\n[*] A processar Cascatas Individuais para Super-Painel de Curvas...")
-        out_file = os.path.join(self.RESULTS_DIR, "Behavioral_Discovery_Extended_CCDF.pdf")
+        print("\n[*] A processar Cascatas Individuais para Subfigures (8 arquivos separados)...")
         
         # Estruturas para rastrear métricas a nível de CASCATA (Root_ID)
         cascade_metrics = {cat: defaultdict(list) for cat in self.CATEGORIES}
@@ -558,7 +557,6 @@ class RakedditAnalyticsOrchestrator:
                         edges.append((curr, child_id))
                         queue.append(child_id)
 
-                # Apenas regista cascatas com um mínimo de interação (ex: >= 3 nós) para evitar ruído de spam
                 if c_total >= 3:
                     cascade_metrics[cat]['Max_Streak'].append(c_max_streak)
                     cascade_metrics[cat]['Mod_Rate'].append(c_mod / c_total)
@@ -571,7 +569,6 @@ class RakedditAnalyticsOrchestrator:
                     if (c_pos + c_neg) > 0:
                         cascade_metrics[cat]['Pos_Dominance'].append(c_pos / (c_pos + c_neg))
 
-                    # Viralidade Estrutural Específica da Cascata
                     if c_total >= 5:
                         adj = defaultdict(list)
                         for u, v in edges: adj[u].append(v); adj[v].append(u)
@@ -598,30 +595,25 @@ class RakedditAnalyticsOrchestrator:
                             virality = total_paths / ((c_total * (c_total - 1)) / 2)
                             cascade_metrics[cat]['Median_Virality'].append(virality)
 
-        # 3. Desenho das curvas suaves (Grid 2x4)
-        sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
-        fig, axes = plt.subplots(2, 4, figsize=(32, 14), sharey=True)
-        axes = axes.flatten()
-        
-        custom_palette = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c']
+        # 3. Geração das 8 figuras individuais
+        magma_hex = sns.color_palette("magma", 4).as_hex()
         linestyles = ['-', '--', '-.', ':']
         
         metrics = [
-            ('Median_Virality', 'STRUCTURAL VIRALITY (CASCADE WIENER)', False),
-            ('Max_Streak', 'ECHO DEPTH (MAX CONSECUTIVE STREAK)', False),
-            ('Mod_Rate', 'MODERATION FRICTION (% REMOVED BY MOD)', True),
+            ('Median_Virality', 'STRUCTURAL VIRALITY', False),
+            ('Max_Streak', 'ECHO DEPTH (MAX STREAK)', False),
+            ('Mod_Rate', 'MODERATION FRICTION (% REMOVED)', True),
             ('Global_Toxicity', 'CONFLICT INDEX (% NEGATIVE)', True),
             ('Positive_Ratio', 'RESONANCE INDEX (% POSITIVE)', True),
             ('Neutral_Ratio', 'DELIBERATION INDEX (% NEUTRAL)', True),
             ('Sentiment_Friction', 'SENTIMENT FRICTION (% SHIFT)', True),
-            ('Pos_Dominance', 'POLARIZATION: POSITIVITY DOMINANCE', True)
+            ('Pos_Dominance', 'POSITIVITY DOMINANCE', True)
         ]
         
-        handles, labels_leg = [], []
-        
-        for i, (col, title, is_pct) in enumerate(metrics):
-            ax = axes[i]
-            ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
+        for col, title, is_pct in metrics:
+            fig, ax = plt.subplots(figsize=(8, 6)) # Tamanho ideal para subfigure
+            sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
+            ax.set_title(title, fontsize=18, fontweight='bold', pad=15)
             
             for j, cat in enumerate(self.CATEGORIES):
                 data = np.array(cascade_metrics[cat][col])
@@ -629,35 +621,33 @@ class RakedditAnalyticsOrchestrator:
                 if is_pct: data = data * 100 
                 
                 sorted_data = np.sort(data)
-                y = 1.0 - np.arange(len(sorted_data)) / len(sorted_data)
+                # Eixo Y agora é em Porcentagem Direta (0 a 100)
+                y = (1.0 - np.arange(len(sorted_data)) / len(sorted_data)) * 100
                 
-                # Curva Suave
-                line, = ax.plot(sorted_data, y, color=custom_palette[j], linestyle=linestyles[j], linewidth=3.5)
-                
-                if i == 0:
-                    handles.append(line)
-                    labels_leg.append(cat)
+                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=3.5, label=cat)
 
-            ax.set_xlabel('METRIC VALUE (PER CASCADE)', fontsize=13, fontweight='bold')
-            if i % 4 == 0: 
-                ax.set_ylabel('CCDF: PROBABILITY P(X >= x)', fontsize=13, fontweight='bold')
+            ax.set_xlabel('METRIC VALUE', fontsize=16, fontweight='bold')
+            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
                 
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             if is_pct: 
                 ax.xaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             elif col == 'Max_Streak':
-                ax.set_xscale('log') # Fica excelente numa power law
+                ax.set_xscale('log') 
             
-            ax.tick_params(labelsize=12)
-            ax.set_ylim(0, 1.05) 
+            ax.tick_params(labelsize=14)
+            ax.set_ylim(-2, 105) 
             if not is_pct and col != 'Max_Streak': ax.set_xlim(left=0)
 
-        fig.legend(handles, labels_leg, loc='upper center', bbox_to_anchor=(0.5, 1.08), ncol=4, fontsize=18, frameon=False)
+            ax.legend(fontsize=12, framealpha=0.9, edgecolor='black')
+            sns.despine()
+            plt.tight_layout()
+            
+            out_file = os.path.join(self.RESULTS_DIR, f"Behavioral_CCDF_{col}.pdf")
+            plt.savefig(out_file, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"   -> Salvo: {out_file}")
 
-        sns.despine(fig)
-        plt.tight_layout()
-        plt.savefig(out_file, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"[SUCCESS] Super-Painel Comportamental 2x4 (Curvas por Cascata) salvo em '{out_file}'")
     # =========================================================================
     # VII. RELATÓRIO PDF DE AUDITORIA ESTATÍSTICA (Centralizado em RESULTS_DIR)
     # =========================================================================
@@ -755,7 +745,6 @@ class RakedditAnalyticsOrchestrator:
         print("\n[*] A processar 1.1M de nós para as Curvas Micro-Topológicas...")
         out_file = os.path.join(self.RESULTS_DIR, "Micro_Topology_CCDF.pdf")
 
-        # Estruturas de armazenamento por categoria
         cat_depths = {cat: [] for cat in self.CATEGORIES}
         cat_sizes = {cat: [] for cat in self.CATEGORIES}
         cat_virality = {cat: [] for cat in self.CATEGORIES}
@@ -764,7 +753,6 @@ class RakedditAnalyticsOrchestrator:
         sub_roots = defaultdict(list)
         sub_cats = {}
 
-        # 1. Leitura rápida direta da base para garantir granularidade máxima
         with open(self.MULTIMODAL_PATH, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -778,11 +766,9 @@ class RakedditAnalyticsOrchestrator:
                     cat = self.CATEGORY_MAP[sub]
                     sub_cats[sub] = cat
 
-                    # Apanha a profundidade (Depth)
                     depth = record.get('depth', 0)
                     cat_depths[cat].append(depth)
 
-                    # Reconstrói a árvore de dependências
                     n_id = record['id']
                     p_id = record.get('parent_id')
                     if p_id: sub_children[sub][p_id].append(n_id)
@@ -791,7 +777,6 @@ class RakedditAnalyticsOrchestrator:
 
         print("   -> A calcular tamanhos e viralidade das cascatas...")
         
-        # 2. Processa o tamanho (Size) e Viralidade Estrutural bruta por cascata
         for sub, cat in sub_cats.items():
             children_map = sub_children[sub]
             for root_id in sub_roots[sub]:
@@ -835,14 +820,13 @@ class RakedditAnalyticsOrchestrator:
                     virality = total_paths / ((num_nodes * (num_nodes - 1)) / 2)
                     cat_virality[cat].append(virality)
 
-        # 3. Configuração do Gráfico
         sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
         fig, axes = plt.subplots(1, 3, figsize=(24, 8))
 
-        custom_palette = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c']
+        # Magma Aplicado
+        magma_hex = sns.color_palette("magma", 4).as_hex()
         linestyles = ['-', '--', '-.', ':']
 
-        # Dicionário de Plotagem: (Dados, Título, Eixo X é Log?, Label Eixo X)
         plot_configs = [
             (cat_depths, 'NODE DEPTH DISTRIBUTION', True, 'DEPTH LEVEL'),
             (cat_sizes, 'CASCADE SIZE DISTRIBUTION', True, 'TOTAL NODES IN CASCADE'),
@@ -853,39 +837,39 @@ class RakedditAnalyticsOrchestrator:
 
         for i, (data_dict, title, is_log_x, x_label) in enumerate(plot_configs):
             ax = axes[i]
-            ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+            ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
 
             for j, cat in enumerate(self.CATEGORIES):
                 data = np.array(data_dict[cat])
                 if len(data) == 0: continue
 
                 sorted_data = np.sort(data)
-                y = 1.0 - np.arange(len(sorted_data)) / len(sorted_data)
+                # Escala Y para Porcentagem Direta
+                y = (1.0 - np.arange(len(sorted_data)) / len(sorted_data)) * 100
                 
-                # Ignoramos o último ponto (que seria 0) para não quebrar a escala LOG no eixo Y
                 sorted_data = sorted_data[:-1]
                 y = y[:-1]
                 
                 if len(sorted_data) == 0: continue
 
-                line, = ax.plot(sorted_data, y, color=custom_palette[j], linestyle=linestyles[j], linewidth=3)
+                line, = ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=3.5)
 
                 if i == 0:
                     handles.append(line)
                     labels_leg.append(f"{cat}")
 
-            # O Pulo do Gato: Escalas Logarítmicas
-            ax.set_yscale('log')
-            ax.set_ylim(bottom=1e-5, top=1.5)
+            # Removido o ax.set_yscale('log')
+            ax.set_ylim(-2, 105)
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             
             if is_log_x:
                 ax.set_xscale('log')
 
-            ax.set_xlabel(x_label, fontsize=14, fontweight='bold')
+            ax.set_xlabel(x_label, fontsize=16, fontweight='bold')
             if i == 0:
-                ax.set_ylabel('CCDF: P(X >= x) [LOG SCALE]', fontsize=14, fontweight='bold')
+                ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
 
-            ax.tick_params(labelsize=13)
+            ax.tick_params(labelsize=14)
 
         fig.legend(handles, labels_leg, loc='upper center', bbox_to_anchor=(0.5, 1.10), ncol=4, fontsize=16, frameon=False)
 
