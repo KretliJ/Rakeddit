@@ -610,10 +610,11 @@ class RakedditAnalyticsOrchestrator:
             ('Pos_Dominance', 'POSITIVITY DOMINANCE', True)
         ]
         
+        # 1. Loop para gerar as 8 subfiguras completamente limpas
         for col, title, is_pct in metrics:
-            fig, ax = plt.subplots(figsize=(8, 6)) # Tamanho ideal para subfigure
+            fig, ax = plt.subplots(figsize=(8, 6))
             sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
-            ax.set_title(title, fontsize=18, fontweight='bold', pad=15)
+            ax.set_title('') # Sem título interno
             
             for j, cat in enumerate(self.CATEGORIES):
                 data = np.array(cascade_metrics[cat][col])
@@ -621,13 +622,12 @@ class RakedditAnalyticsOrchestrator:
                 if is_pct: data = data * 100 
                 
                 sorted_data = np.sort(data)
-                # Eixo Y agora é em Porcentagem Direta (0 a 100)
                 y = (1.0 - np.arange(len(sorted_data)) / len(sorted_data)) * 100
-                
-                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=3.5, label=cat)
+                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0)
 
-            ax.set_xlabel('METRIC VALUE', fontsize=16, fontweight='bold')
-            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
+            # Remove completamente as labels e os títulos para a colagem em matriz
+            ax.set_xlabel('')
+            ax.set_ylabel('')
                 
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             if is_pct: 
@@ -635,18 +635,57 @@ class RakedditAnalyticsOrchestrator:
             elif col == 'Max_Streak':
                 ax.set_xscale('log') 
             
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=18)
             ax.set_ylim(-2, 105) 
             if not is_pct and col != 'Max_Streak': ax.set_xlim(left=0)
 
-            ax.legend(fontsize=12, framealpha=0.9, edgecolor='black')
             sns.despine()
             plt.tight_layout()
             
             out_file = os.path.join(self.RESULTS_DIR, f"Behavioral_CCDF_{col}.pdf")
             plt.savefig(out_file, dpi=300, bbox_inches='tight')
             plt.close()
-            print(f"   -> Salvo: {out_file}")
+            print(f"   -> Salvo (Sem Labels): {out_file}")
+
+        # 2. GERAÇÃO DA FIGURA EXTRA (Com Margens Fantasmas Simétricas)
+        print("[*] Gerando Figura Extra de Rótulos e Legenda (Margens Idênticas)...")
+        fig_leg, ax_leg = plt.subplots(figsize=(8, 6))
+        sns.set_theme(style="ticks", rc={"axes.grid": False}) # Sem grid para o fundo ficar limpo
+        
+        # TRUQUE DE MARGEM: Criamos um eixo falso com as mesmas dimensões dos outros
+        ax_leg.set_xlim(0, 100)
+        ax_leg.set_ylim(-2, 105)
+        ax_leg.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+        ax_leg.xaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+        ax_leg.tick_params(labelsize=18)
+        
+        # Pintamos a borda e os números de BRANCO para guardarem o espaço da margem sem aparecerem
+        ax_leg.tick_params(axis='x', colors='white')
+        ax_leg.tick_params(axis='y', colors='white')
+        for spine in ax_leg.spines.values():
+            spine.set_color('white')
+        
+        dummy_handles = []
+        for j, cat in enumerate(self.CATEGORIES):
+            line, = ax_leg.plot([], [], color=magma_hex[j], linestyle=linestyles[j], linewidth=6.0, label=cat)
+            dummy_handles.append(line)
+            
+        # Textos ajustados (mais altos para não cortarem) e centralizados
+        ax_leg.text(0.5, 0.85, "AXIS LABELS REFERENCE", ha='center', va='center', fontsize=22, fontweight='bold', color='#333333', transform=ax_leg.transAxes)
+        ax_leg.text(0.5, 0.62, "Vertical Axis (Y):\nCCDF (% OF CASCADES)", ha='center', va='center', fontsize=18, fontweight='bold', transform=ax_leg.transAxes)
+        ax_leg.text(0.5, 0.39, "Horizontal Axis (X):\nMETRIC VALUE", ha='center', va='center', fontsize=18, fontweight='bold', transform=ax_leg.transAxes)
+        
+        # Legenda com ncol=2 para o quadrinho ficar mais largo
+        ax_leg.legend(handles=dummy_handles, loc='lower center', bbox_to_anchor=(0.5, 0.05), 
+                      ncol=2, fontsize=16, framealpha=0.9, edgecolor='black', borderpad=1.2)
+        
+        out_legend = os.path.join(self.RESULTS_DIR, "Behavioral_CCDF_Legend_Master.pdf")
+        
+        # O tight_layout agora vai calcular a margem baseando-se nos números invisíveis!
+        plt.tight_layout()
+        plt.savefig(out_legend, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"[SUCCESS] Figura de Legenda Master salva em: {out_legend}")
 
     # =========================================================================
     # VII. RELATÓRIO PDF DE AUDITORIA ESTATÍSTICA (Centralizado em RESULTS_DIR)
