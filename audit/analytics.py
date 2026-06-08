@@ -24,7 +24,7 @@ class RakedditAnalyticsOrchestrator:
         self.MULTIMODAL_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
         
         # Output Directories
-        self.RESULTS_DIR = "results"
+        self.RESULTS_DIR = "results/first_wave"
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         
         # Constants & Binning
@@ -594,27 +594,29 @@ class RakedditAnalyticsOrchestrator:
                                     total_paths += (size * (c_total - size))
                             virality = total_paths / ((c_total * (c_total - 1)) / 2)
                             cascade_metrics[cat]['Median_Virality'].append(virality)
-
-        # 3. Geração das 8 figuras individuais
+        
+        # =========================================================================
+        # GERAÇÃO DOS 8 GRÁFICOS CCDF (Sem legenda individual)
+        # =========================================================================
         magma_hex = sns.color_palette("magma", 4).as_hex()
         linestyles = ['-', '--', '-.', ':']
         
+        # Agora a lista recebe: (Nome da Coluna, É porcentagem?, Rótulo do Eixo X)
         metrics = [
-            ('Median_Virality', 'STRUCTURAL VIRALITY', False),
-            ('Max_Streak', 'ECHO DEPTH (MAX STREAK)', False),
-            ('Mod_Rate', 'MODERATION FRICTION (% REMOVED)', True),
-            ('Global_Toxicity', 'CONFLICT INDEX (% NEGATIVE)', True),
-            ('Positive_Ratio', 'RESONANCE INDEX (% POSITIVE)', True),
-            ('Neutral_Ratio', 'DELIBERATION INDEX (% NEUTRAL)', True),
-            ('Sentiment_Friction', 'SENTIMENT FRICTION (% SHIFT)', True),
-            ('Pos_Dominance', 'POSITIVITY DOMINANCE', True)
+            ('Median_Virality', False, 'STRUCTURAL VIRALITY'), 
+            ('Max_Streak', False, 'ECHO DEPTH (NODES)'), 
+            ('Mod_Rate', True, 'MODERATION ATTRITION (%)'), 
+            ('Global_Toxicity', True, 'NEGATIVE SENTIMENT (%)'),
+            ('Positive_Ratio', True, 'POSITIVE SENTIMENT (%)'), 
+            ('Neutral_Ratio', True, 'NEUTRAL (%)'), 
+            ('Sentiment_Friction', True, 'SENTIMENT FRICTION (%)'), 
+            ('Pos_Dominance', True, 'POSITIVE DOMINANCE (%)')
         ]
         
-        # 1. Loop para gerar as 8 subfiguras completamente limpas
-        for col, title, is_pct in metrics:
+        for i, (col, is_pct, x_label) in enumerate(metrics):
             fig, ax = plt.subplots(figsize=(8, 6))
-            sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
-            ax.set_title('') # Sem título interno
+            ax.grid(True, alpha=0.5, linestyle="--", zorder=0)
+            ax.set_title('') 
             
             for j, cat in enumerate(self.CATEGORIES):
                 data = np.array(cascade_metrics[cat][col])
@@ -623,27 +625,51 @@ class RakedditAnalyticsOrchestrator:
                 
                 sorted_data = np.sort(data)
                 y = (1.0 - np.arange(len(sorted_data)) / len(sorted_data)) * 100
-                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0)
+                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0, zorder=3)
 
-            # Remove completamente as labels e os títulos para a colagem em matriz
-            ax.set_xlabel('')
-            ax.set_ylabel('')
+            # EIXO X AGORA RECEBE O NOME ESPECÍFICO
+            ax.set_xlabel(x_label, fontsize=22, fontweight='bold')
+            
+            # Eixo Y apenas na primeira coluna
+            if i % 2 == 0:
+                ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=22, fontweight='bold')
+            else:
+                ax.set_ylabel('')
                 
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             if is_pct: 
                 ax.xaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-            elif col == 'Max_Streak':
-                ax.set_xscale('log') 
             
             ax.tick_params(labelsize=18)
             ax.set_ylim(-2, 105) 
-            if not is_pct and col != 'Max_Streak': ax.set_xlim(left=0)
+            if not is_pct: ax.set_xlim(left=0)
 
             sns.despine()
             plt.tight_layout()
-            
             out_file = os.path.join(self.RESULTS_DIR, f"Behavioral_CCDF_{col}.pdf")
             plt.savefig(out_file, dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # =========================================================================
+            # GERAÇÃO DA LEGENDA MESTRE (Topo da Página)
+            # =========================================================================
+            print("[*] Gerando Legenda Mestre Horizontal...")
+            # Cria uma figura bem larga e fininha (10 de largura, 0.5 de altura)
+            fig_leg, ax_leg = plt.subplots(figsize=(10, 0.5)) 
+            ax_leg.axis('off') # Esconde todo o gráfico fantasma
+            
+            dummy_handles = []
+            for j, cat in enumerate(self.CATEGORIES):
+                line, = ax_leg.plot([], [], color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0, label=cat)
+                dummy_handles.append(line)
+                
+            # Desenha apenas a legenda, com 4 colunas, centralizada
+            ax_leg.legend(handles=dummy_handles, loc='center', ncol=4, 
+                        fontsize=16, framealpha=1.0, edgecolor='black', 
+                        handlelength=4.0, handletextpad=1.0)
+            
+            out_legend = os.path.join(self.RESULTS_DIR, "Behavioral_CCDF_Top_Legend.pdf")
+            plt.savefig(out_legend, dpi=300, bbox_inches='tight')
             plt.close()
             print(f"   -> Salvo (Sem Labels): {out_file}")
 
@@ -686,6 +712,20 @@ class RakedditAnalyticsOrchestrator:
         plt.savefig(out_legend, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"[SUCCESS] Figura de Legenda Master salva em: {out_legend}")
+
+        print("\n=== VALORES REAIS: KRUSKAL-WALLIS PARA A TABELA 2 ===")
+        metrics = [
+            'Median_Virality', 'Max_Streak', 'Mod_Rate', 'Global_Toxicity', 
+            'Positive_Ratio', 'Neutral_Ratio', 'Sentiment_Friction', 'Pos_Dominance'
+        ]
+        
+        for m in metrics:
+            # Extrai as listas de valores de cada categoria para a métrica atual
+            groups = [cascade_metrics[cat][m] for cat in self.CATEGORIES if len(cascade_metrics[cat][m]) > 0]
+            
+            if len(groups) == 4: # Garante que temos as 4 categorias para comparar
+                stat, p = kruskal(*groups)
+                print(f"Métrica: {m:20} | H-Statistic: {stat:8.2f} | p-value: {p:.4e}")
 
     # =========================================================================
     # VII. RELATÓRIO PDF DE AUDITORIA ESTATÍSTICA (Centralizado em RESULTS_DIR)
@@ -918,6 +958,221 @@ class RakedditAnalyticsOrchestrator:
         plt.close()
         print(f"[SUCCESS] Curvas Micro-Topológicas (N=1.1M) salvas em '{out_file}'")
 
+    # =========================================================================
+    # X. CCDFS RQ1
+    # =========================================================================
+    def calculate_structural_and_plot_rq1(self):
+        print("[*] Iniciando a Quarta Onda: Processamento Estrutural e Temporal RQ1...")
+        import pandas as pd
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as mtick
+        import seaborn as sns
+        import networkx as nx
+        from collections import defaultdict
+        import json
+        import os
+
+        magma_hex = sns.color_palette("magma", 4).as_hex()
+        colors_cat = {
+            'PUBLIC ARENAS': magma_hex[0], 
+            'HUMOR': magma_hex[1], 
+            'SOCIOCULTURAL': magma_hex[2], 
+            'HOBBIES': magma_hex[3]
+        }
+        linestyles = ['-', '--', '-.', ':']
+        cascade_metrics = {cat: defaultdict(list) for cat in self.CATEGORIES}
+        sub_children = defaultdict(lambda: defaultdict(list))
+        node_memory = {}
+        sub_roots = defaultdict(list)
+
+        print("   -> Fase 1: Mapeando nós (Definição Kretli et al. 2026: Floresta de Cascatas)...")
+        with open(self.MULTIMODAL_PATH, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                    sub = record.get('subreddit', '').lower()
+                    if sub not in self.CATEGORY_MAP: continue
+                    
+                    n_id_raw = record.get('id', '')
+                    p_id_raw = record.get('parent_id')
+                    depth = record.get('depth', 0)
+                    
+                    # Higienização de IDs para que o NetworkX consiga ligar a árvore
+                    n_id = str(n_id_raw).split('_')[-1]
+                    
+                    if p_id_raw and pd.notna(p_id_raw):
+                        p_id = str(p_id_raw).split('_')[-1]
+                        # Se o parent_id começa com 't3_', é o post original. Logo, é nó de nível 1.
+                        is_post_reply = str(p_id_raw).startswith('t3_')
+                    else:
+                        p_id = None
+                        is_post_reply = False
+                        
+                    author = record.get('author', '[deleted]')
+                    
+                    ts = record.get('created_utc')
+                    if not ts: ts = record.get('timestamp')
+                    if not ts: ts = record.get('ai_analysis', {}).get('created_utc')
+                    
+                    node_memory[n_id] = {
+                        'author': author, 
+                        'timestamp': float(ts) if ts else None
+                    }
+                    
+                    # APLICAÇÃO DA DEFINIÇÃO DO TCC:
+                    # A raiz é EXCLUSIVAMENTE um nó de profundidade 1 (resposta direta ao post)
+                    if depth == 1 or is_post_reply:
+                        sub_roots[sub].append(n_id)
+                    elif p_id:
+                        # Se não é raiz, é galho/folha. Salva quem é o pai para a Fase 2 conectar.
+                        sub_children[sub][p_id].append(n_id)
+                        
+                except Exception:
+                    continue
+
+        print("   -> Fase 2: Computando Grafos Temporais Exclusivos via NetworkX...")
+        for sub, cat in self.CATEGORY_MAP.items():
+            if sub not in sub_roots: continue
+            
+            cascatas_salvas = 0
+            for root_id in sub_roots[sub]:
+                # Como definimos pelas raízes do nível 1, iniciamos a fila por elas
+                queue = [(root_id, None)]
+                G = nx.DiGraph()
+                timestamps = []
+                authors = set()
+                
+                while queue:
+                    curr, actual_parent = queue.pop(0)
+                    G.add_node(curr)
+                    if actual_parent is not None:
+                        G.add_edge(actual_parent, curr)
+                        
+                    nd = node_memory.get(curr, {})
+                    ts = nd.get('timestamp')
+                    author = nd.get('author', '[deleted]')
+                    
+                    if ts: timestamps.append(ts)
+                    if author not in ['[deleted]', 'deleted']: authors.add(author)
+                        
+                    for child_id in sub_children[sub].get(curr, []):
+                        queue.append((child_id, curr))
+                
+                num_messages = G.number_of_nodes()
+                if num_messages < 3: 
+                    continue
+                
+                cascatas_salvas += 1
+                
+                # 1. Structural Virality
+                G_un = G.to_undirected()
+                virality = nx.wiener_index(G_un) / (num_messages * (num_messages - 1)) if num_messages > 1 else 1.0
+
+                # 2. Max Depth e Breadth
+                try:
+                    lengths = nx.single_source_shortest_path_length(G, root_id)
+                    max_depth = max(lengths.values()) if lengths else 1
+                    level_counts = defaultdict(int)
+                    for dist in lengths.values(): level_counts[dist] += 1
+                    max_breadth = max(level_counts.values()) if level_counts else 1
+                except:
+                    max_depth = 1
+                    max_breadth = 1
+
+                # 4. Métricas Temporais
+                if len(timestamps) >= 2:
+                    sorted_ts = np.sort(timestamps)
+                    duration_hours = (sorted_ts[-1] - sorted_ts[0]) / 3600.0
+                    iats = np.diff(sorted_ts) / 60.0
+                    mean_iat_min = np.mean(iats) if len(iats) > 0 else 0.0
+                else:
+                    duration_hours = 0.0
+                    mean_iat_min = 0.0
+
+                cascade_metrics[cat]['Structural_Virality'].append(virality)
+                cascade_metrics[cat]['Max_Depth'].append(max_depth)
+                cascade_metrics[cat]['Max_Breadth'].append(max_breadth)
+                cascade_metrics[cat]['Unique_Users'].append(max(len(authors), 1))
+                cascade_metrics[cat]['Number_Messages'].append(num_messages)
+                cascade_metrics[cat]['Duration_Hours'].append(duration_hours)
+                cascade_metrics[cat]['Mean_IAT_Min'].append(mean_iat_min)
+
+            if cascatas_salvas > 0:
+                print(f"      [OK] {cat} ({sub}): {cascatas_salvas} n-ary trees processadas.")
+
+        print("   -> Fase 3: Renderizando os novos CCDFs com eixos específicos...")
+        metrics_rq1 = [
+            ('Structural_Virality', False, 'STRUCTURAL VIRALITY (WIENER INDEX)'),
+            ('Max_Depth', False, 'MAXIMUM CASCADE DEPTH'),
+            ('Max_Breadth', True, 'MAXIMUM CASCADE BREADTH'),
+            ('Unique_Users', True, 'UNIQUE PARTICIPATING USERS'),
+            ('Number_Messages', True, 'NUMBER OF MESSAGES (SIZE)'),
+            ('Duration_Hours', True, 'CASCADE DURATION (HOURS)'),
+            ('Mean_IAT_Min', True, 'MEAN INTER-ARRIVAL TIME (MINUTES)')
+        ]
+
+        # Configuração estética do Seaborn
+        sns.set_theme(style="ticks", rc={"axes.grid": True, "grid.alpha": 0.5, "grid.linestyle": "--"})
+
+        for i, (col, is_log_x, x_label) in enumerate(metrics_rq1):
+            fig, ax = plt.subplots(figsize=(8, 6))
+            # Garante o grid de forma explícita em todos
+            ax.grid(True, alpha=0.5, linestyle="--", zorder=0)
+            
+            for j, cat in enumerate(self.CATEGORIES):
+                data = np.array(cascade_metrics[cat][col])
+                if len(data) == 0: 
+                    print(f"   [AVISO] Sem dados para renderizar: {cat} -> {col}")
+                    continue
+                
+                sorted_data = np.sort(data)
+                y = (1.0 - np.arange(len(sorted_data)) / len(sorted_data)) * 100
+                ax.plot(sorted_data, y, color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0, zorder=3)
+
+            # Rótulos customizados conforme diretriz
+            ax.set_xlabel(x_label, fontsize=18, fontweight='bold')
+            
+            if i % 2 == 0:
+                ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
+            else:
+                ax.set_ylabel('')
+                
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+            ax.tick_params(labelsize=14)
+            ax.set_ylim(-2, 105) 
+            
+            if is_log_x:
+                ax.set_xscale('log')
+            else:
+                ax.set_xlim(left=0)
+
+            sns.despine()
+            plt.tight_layout()
+            out_file = os.path.join(self.RESULTS_DIR, f"Structural_RQ1_CCDF_{col}.pdf")
+            plt.savefig(out_file, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"   [SUCESSO] Salvo: {out_file}")
+
+        # =========================================================================
+        # GERAÇÃO DA LEGENDA MESTRE HORIZONTAL UNIVERSAL NO TOPO
+        # =========================================================================
+        print("[*] Gerando Barra de Legenda Mestre Superior...")
+        fig_leg, ax_leg = plt.subplots(figsize=(10, 0.5)) 
+        ax_leg.axis('off')
+        dummy_handles = []
+        for j, cat in enumerate(self.CATEGORIES):
+            line, = ax_leg.plot([], [], color=magma_hex[j], linestyle=linestyles[j], linewidth=4.0, label=cat)
+            dummy_handles.append(line)
+            
+        ax_leg.legend(handles=dummy_handles, loc='center', ncol=4, 
+                      fontsize=14, framealpha=1.0, edgecolor='black', 
+                      handlelength=4.0, handletextpad=1.0)
+        
+        plt.savefig(os.path.join(self.RESULTS_DIR, "Structural_RQ1_Top_Legend.pdf"), dpi=300, bbox_inches='tight')
+        plt.close()
+        print("[SUCCESS] Pipeline de Quarta Onda concluído sem lacunas.")
+
 if __name__ == "__main__":
     app = RakedditAnalyticsOrchestrator()
     if app.extract_and_assign_taxonomy():
@@ -936,6 +1191,7 @@ if __name__ == "__main__":
         # O novo Megazord Topológico (As curvas suaves de 1M de nós)
         app.plot_micro_topology_ccdf()
         
+        app.calculate_structural_and_plot_rq1()
         # Transições
         app.plot_markov()
         print("\n👋 Processamento analítico completamente finalizado.")

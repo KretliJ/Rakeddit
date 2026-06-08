@@ -2,9 +2,9 @@ import json
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import matplotlib.ticker as mtick
+import matplotlib.pyplot as plt # type: ignore
+import seaborn as sns # type: ignore
+import matplotlib.ticker as mtick # type: ignore
 from scipy.stats import kruskal, sem
 from collections import defaultdict
 import networkx as nx
@@ -12,7 +12,7 @@ import networkx as nx
 class FourthWaveAnalytics:
     def __init__(self):
         self.MULTIMODAL_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
-        self.RESULTS_DIR = "results_fourth_wave"
+        self.RESULTS_DIR = "results/4-results_fourth_wave"
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         
         self.VALID_SENTIMENTS = {'POSITIVE', 'NEUTRAL', 'NEGATIVE'}
@@ -31,6 +31,11 @@ class FourthWaveAnalytics:
 
     def extract_and_analyze(self):
         print("[*] Parsing network structures and user interactions...")
+        import pandas as pd
+        
+        sub_roots = defaultdict(list)
+        sub_children = defaultdict(lambda: defaultdict(list))
+        
         with open(self.MULTIMODAL_PATH, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -38,59 +43,87 @@ class FourthWaveAnalytics:
                     sub = record.get('subreddit', '').lower()
                     if sub not in self.CATEGORY_MAP: continue
                     
-                    n_id = record['id']
-                    p_id = record.get('parent_id')
+                    n_id_raw = record.get('id', '')
+                    p_id_raw = record.get('parent_id')
                     depth = record.get('depth', 0)
+                    
+                    # Higienização de IDs para NetworkX
+                    n_id = str(n_id_raw).split('_')[-1]
+                    
+                    if p_id_raw and pd.notna(p_id_raw):
+                        p_id = str(p_id_raw).split('_')[-1]
+                        is_post_reply = str(p_id_raw).startswith('t3_')
+                    else:
+                        p_id = None
+                        is_post_reply = False
+                        
                     label = record.get('ai_analysis', {}).get('label', 'UNKNOWN')
-                    author = record.get('author', 'deleted')
+                    author = record.get('author', '[deleted]')
                     
                     self.node_memory[n_id] = {'p_id': p_id, 'label': label, 'sub': sub, 'author': author}
-                    if p_id: self.sub_children[sub][p_id].append(n_id)
-                    if depth == 1 or p_id is None: self.sub_roots[sub].append(n_id)
+                    
+                    # Definição: Raízes são nível 1
+                    if depth == 1 or is_post_reply:
+                        sub_roots[sub].append(n_id)
+                    elif p_id:
+                        sub_children[sub][p_id].append(n_id)
                 except: continue
 
         for sub, cat in self.CATEGORY_MAP.items():
-            if sub not in self.sub_roots: continue
-            for root_id in self.sub_roots[sub]:
-                queue = [root_id]
+            if sub not in sub_roots: continue
+            
+            for root_id in sub_roots[sub]:
+                queue = [(root_id, None)]
                 sentiments = {'POSITIVE': 0, 'NEUTRAL': 0, 'NEGATIVE': 0}
                 total_valid = 0
+                
+                # Grafo DIRECIONADO DE USUÁRIOS (User A -> User B)
                 G = nx.DiGraph() 
                 
                 while queue:
-                    curr = queue.pop(0)
-                    c_data = self.node_memory[curr]
-                    lbl = c_data['label']
-                    curr_author = c_data['author']
+                    curr, actual_parent = queue.pop(0)
+                    
+                    c_data = self.node_memory.get(curr, {})
+                    lbl = c_data.get('label', 'UNKNOWN')
+                    curr_author = c_data.get('author', '[deleted]')
                     
                     if lbl in self.VALID_SENTIMENTS:
                         sentiments[lbl] += 1
                         total_valid += 1
                         
-                    p_id = c_data['p_id']
-                    if p_id and p_id in self.node_memory:
-                        parent_author = self.node_memory[p_id]['author']
-                        if curr_author != 'deleted' and parent_author != 'deleted' and curr_author != parent_author:
-                            G.add_edge(curr_author, parent_author)
+                    # CRIAÇÃO DA ARESTA ENTRE USUÁRIOS (Ignorando quem responde a si mesmo)
+                    if actual_parent is not None:
+                        parent_author = self.node_memory.get(actual_parent, {}).get('author', '[deleted]')
+                        if curr_author not in ['[deleted]', 'deleted'] and parent_author not in ['[deleted]', 'deleted']:
+                            if curr_author != parent_author:
+                                G.add_edge(curr_author, parent_author)
 
-                    for child_id in self.sub_children[sub].get(curr, []):
-                        queue.append(child_id)
+                    for child_id in sub_children[sub].get(curr, []):
+                        queue.append((child_id, curr))
 
+                # Condição de viabilidade: Pelo menos 3 mensagens válidas E 2 usuários distintos (para ter aresta)
                 if total_valid >= 3 and G.number_of_nodes() >= 2:
                     pct_neg = (sentiments['NEGATIVE'] / total_valid) * 100
                     pct_neu = (sentiments['NEUTRAL'] / total_valid) * 100
                     pct_pos = (sentiments['POSITIVE'] / total_valid) * 100
                     
+                    # Censo Diádico
                     dyads = sum(1 for u, v in G.edges() if not G.has_edge(v, u))
                     mutual_dyads = sum(1 for u, v in G.edges() if G.has_edge(v, u)) / 2
+                    
+                    # Censo Triádico (Requer >= 3 nós no grafo)
                     triads = nx.triadic_census(G) if G.number_of_nodes() >= 3 else defaultdict(int)
                     
                     motifs = {
-                        'Dyad': dyads, 'Mutual Dyad': mutual_dyads,
-                        'Chain': triads.get('021C', 0), 'Fan-In': triads.get('021D', 0),
-                        'Fan-Out': triads.get('021U', 0), 'Triangle': triads.get('030T', 0),
+                        'Dyad': dyads, 
+                        'Mutual Dyad': mutual_dyads,
+                        'Chain': triads.get('021C', 0), 
+                        'Fan-In': triads.get('021D', 0),
+                        'Fan-Out': triads.get('021U', 0), 
+                        'Triangle': triads.get('030T', 0),
                         'Recip. Triangle': triads.get('300', 0)
                     }
+                    
                     total_motifs = sum(motifs.values())
                     
                     self.cascade_stats.append({
@@ -98,7 +131,8 @@ class FourthWaveAnalytics:
                         'pct_neg': pct_neg, 'pct_neu': pct_neu, 'pct_pos': pct_pos,
                         'total_motifs': total_motifs, **motifs
                     })
-        print(f"[+] Processed {len(self.cascade_stats)} valid network cascades.")
+                    
+        print(f"[+] Processed {len(self.cascade_stats)} valid network cascades for motifs.")
 
     def run_kruskal_tests(self):
         df = pd.DataFrame(self.cascade_stats)
@@ -161,7 +195,7 @@ class FourthWaveAnalytics:
         fig, ax = plt.subplots(figsize=(15, 6))
         sns.heatmap(agg_mean, annot=labels, fmt="", cmap="magma_r", cbar=True, ax=ax, annot_kws={'size': 11, 'weight': 'bold'})
         ax.set_ylabel("SUBREDDIT CATEGORY", fontsize=14, fontweight='bold')
-        ax.set_xlabel("USER INTERACTION MOTIFS PROPORION", fontsize=14, fontweight='bold')
+        ax.set_xlabel("USER INTERACTION MOTIFS PROPORTION", fontsize=14, fontweight='bold')
         ax.set_xticklabels(motif_cols)
         plt.yticks(rotation=0)
         plt.tight_layout()

@@ -12,7 +12,7 @@ import networkx as nx
 class ThirdWaveAnalytics:
     def __init__(self):
         self.MULTIMODAL_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
-        self.RESULTS_DIR = "results_third_wave"
+        self.RESULTS_DIR = "results/3-results_third_wave"
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         
         self.VALID_SENTIMENTS = {'POSITIVE', 'NEUTRAL', 'NEGATIVE'}

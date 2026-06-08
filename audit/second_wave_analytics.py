@@ -2,15 +2,15 @@ import json
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import matplotlib.ticker as mtick
+import matplotlib.pyplot as plt # type: ignore
+import seaborn as sns # type: ignore
+import matplotlib.ticker as mtick # type: ignore
 from collections import defaultdict, Counter
 
 class SecondWaveAnalytics:
     def __init__(self):
         self.MULTIMODAL_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
-        self.RESULTS_DIR = "results_second_wave"
+        self.RESULTS_DIR = "results/2-results_second_wave"
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         
         self.VALID_SENTIMENTS = {'POSITIVE', 'NEUTRAL', 'NEGATIVE'}
