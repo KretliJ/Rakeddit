@@ -2,8 +2,8 @@ import json
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.pyplot as plt # type: ignore
+import seaborn as sns # type: ignore
 from collections import defaultdict
 
 class SentimentMotifAnalytics:

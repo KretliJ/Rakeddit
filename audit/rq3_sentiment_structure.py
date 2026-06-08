@@ -2,9 +2,9 @@ import json
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import matplotlib.ticker as mtick
+import matplotlib.pyplot as plt # type: ignore
+import seaborn as sns # type: ignore
+import matplotlib.ticker as mtick # type: ignore
 import networkx as nx
 from collections import defaultdict
 from scipy.stats import linregress, kruskal
@@ -229,7 +229,7 @@ class RQ3SentimentStructure:
             
         # FORA DO LOOP: Criamos a legenda UMA ÚNICA VEZ para toda a figura
         # Usamos 'lines' manuais apenas para a legenda, evitando conflito com Line2D
-        from matplotlib.lines import Line2D
+        from matplotlib.lines import Line2D # type: ignore
         
         custom_handles = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor=cat_palette[cat], 
