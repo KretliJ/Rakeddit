@@ -2,52 +2,43 @@
 
 ### [ ARCHITECTURE OVERVIEW ]
 
-Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral data extraction, structural graph analysis, and local multimodal AI analysis from Reddit. It prioritizes "Gentle Harvesting" through randomized jittering and automated rate-limit handling and Zero-Cloud Dependency for its cognitive engine ensuring long-term stability for large-scale datasets. It does not require API access.Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral data extraction and local multimodal AI analysis from Reddit. It prioritizes "Gentle Harvesting" through randomized jittering and automated rate-limit handling and Zero-Cloud Dependency for its cognitive engine ensuring long-term stability for large-scale datasets. It does not require API access.
+Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral data extraction, structural graph analysis, and local multimodal AI analysis from Reddit. It prioritizes "Gentle Harvesting" through randomized jittering and automated rate-limit handling, alongside a Zero-Cloud Dependency architecture ensuring long-term structural data integrity without reliance on external commercial APIs.
 
-* LLM & Graph Ready: Outputs normalized "Tidy Data", perfectly structured for local LLM context windows (Stance Detection) and Graph Theory analysis (NetworkX, Gephi).
-* Cascade Analytics: Native calculations for conversation depth and breadth, enabling structural characterization of echo chambers, hate cascades, and political debate volatility.
+* **LLM & Graph Ready:** Outputs normalized "Tidy Data", optimized for local transformer context windows (Stance and Polarity Detection) and topological Network Theory computations (`networkx`).
+* **Cascade Analytics Orchestrator:** Features a unified, multi-threaded Model-View-Controller (MVC) pipeline that aggregates and computes multi-platform graph dynamics, structural cascades, behavior profiles, and sequential triadic motifs over a massive 1.1M node dataset.
 
 WARNING:
 
-* Strictly for research purposes. This is designed to realistically handle up to 1,000,000 data points.
+* Strictly for research purposes. This is designed to realistically collect up to 1,000,000 data points.
 * This is designed to run over extended periods of time.
 * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
   * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.
-* This caused my IP to get a long-term cooldown from reddit's servers, so use this with caution.
+* This caused my IP to get a long-term cooldown from reddit's servers, so use it with caution (or not, if you expect to finish in under a week).
 
-### [ EXECUTION SCRIPT ]
+### [ PIPELINE STAGES ]
 
 #### STAGE 1: Subreddit Ingestion
+The system identifies active threads and extracts the raw JSON structure of a community's front page.
+* **Mechanism:** Recursive `GET` requests to native `.json` endpoints.
+* **Compliance:** Randomized jitter (3.0s - 7.0s) and exponential back-off for HTTP 429 exceptions.
 
-The system identifies active threads and extracts the raw JSON structure of the community's front page.
-
-* **Mechanism:** Recursive `GET` requests to Reddit's `.json` endpoints.
-* **Compliance:** Randomized jitter (3.0s - 7.0s) and exponential back-off for HTTP 429 (Too Many Requests).
-* **Storage:** Localized storage in `./json_dumps/[subreddit_name]/`.
-
-#### STAGE 2: Data Normalization (Tree Flattening)
-
-Transforms the highly nested, raw JSON comment trees into a flat, relational structure without losing conversational context.
-
-* **Mechanism:** Iterative Depth-First Search using a stack, preventing Python recursion limits on deep threads.
-* **Graph Integrity:** Injects a `post_header` as absolute root (`depth: 0`). Tracks exact detph for every comment with `is_valid_text` flag. Sanitizes AutoMod and deleted nodes to maintain `parent_id` connection wihout pulluting or breaking downstream context.
-* **Telemetry:** Injects `metadata_footer` calculating temporal boundaries (Unix and ISO 8601)
-* **Storage:** Streams directly to JSON Lines (`.jsonl`) format, guaranteeing a reduced memory footprint regardless of dataset size.
+#### STAGE 2: Relational Flattening (Tree Processing)
+Transforms nested, conversational JSON reply hierarchies into flat, highly connected relational rows without breaking structural cascade vectors.
+* **Mechanism:** Stack-based Depth-First Search (DFS) execution bypassing Python standard stack recursion depth errors on long-tail debate layers.
+* **Graph Integrity:** Injects a `post_header` as root anchor (`depth: 0`). Sanitizes AutoMod and deleted accounts to retain path connectivity, computing exact temporal delta properties and human-readable Unix timestamps.
 
 #### STAGE 3: Multimodal Context Enrichment
+Sanitizes and processes visual elements (JPEGs, PNGs, GIFs) into semantic annotations to capture rhetorical intent and OCR data without interrupting the main text-based pipeline.
+* **Mechanism:** In-RAM image interceptor (`Pillow`) flattens alpha channels, rescaling dimensions to safeguard VRAM limits.
+* **Vision Engine:** Standardized schemas connecting to local Small Vision Language Models (e.g., `Qwen2.5-VL` via `Ollama`) to handle visual extraction protocols.
 
-Sanitizes and processes visual media (JPEGs, PNGs, GIFs) into textual descriptions to capture rhetorical intent and OCR data without breaking the text-based LLM pipeline.
-
-* **Mechanism:** in-RAM image interceptor (Pillow) flattens alpha channels and animated frames, resizing media to prevent Out-of-Memory errors.
-* **Vision Engine:** Connects to local Small Vision Language Models (e.g., Qwen2.5-VL via Ollama) via strict protocol validation to extract textual content and visual context.
-
-#### STAGE 4: Analytics
-
-Analyzes the enriched dataset to generate the "Structural Signature" of the community.
-
-* **Mechanism:** Calculates Average Breadth per Depth and Average Max Depth.
-* **Output:** Generates log-scale plots (Seaborn/Matplotlib) to visually compare debate persistence and reactivity across different subreddits.
-* To be expanded
+#### STAGE 4: Analytics Engine & Unified Orchestration
+Computes behavioral features, user structures, and validation curves across different subreddits.
+* **Structural Suite (Figure 1):** Renders high-fidelity Complementary Cumulative Distribution Functions (CCDFs) spanning Structural Virality (Wiener index mappings), Max Depth, Max Breadth, Total Message Volumes, and Participant Scales. Includes bivariant temporal trendlines tracking velocity dynamics over depth and size boundaries.
+* **User Interaction Motifs (Figure 2):** Extracts directed structural configurations (Dyads, Mutual Pairs, Chains, Fan-In, Fan-Out, Triangles) and executes multi-group Kruskal-Wallis non-parametric significance testing.
+* **Platform Interaction Reactions (Figure 3):** Computes CCDFs tracking Average Cascade Scores (Upvotes minus Downvotes), mapping algorithmic reinforcement behavior against group toxicity levels.
+* **Triadic Sentiments (RQ2):** Performs sequential time-series scanning across grandfather-father-son structures to trace emotional transitions (Persistence, Convergence, Shifts, Oscillations).
+* **Taxonomy & Intersections (BCC / RQ3):** Generates structural regression curves mapping conflict indexes against platform virality boundaries, integrating global multi-marker master legends for dense point structures.
 ---
 
 ### [ USAGE ]
@@ -59,16 +50,16 @@ Analyzes the enriched dataset to generate the "Structural Signature" of the comm
 #### 1. System Requirements
 
 * **OS:** Windows or Linux (Debian-based distributions recommended for Python integration).
-* **Python:** Version 3.10 or higher (Python 3.13 verified for stable `Pillow` compilation).
+* **Python:** Version 3.11 or higher.
 * **Backend:** [Ollama](https://ollama.com/) must be installed and running locally as a background service.
-* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM or higher) for stable multimodal parsing and text generation.
+* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM or higher) for stable multimodal parsing and NLP inference.
 
 #### 2. Environment Setup
 
 Clone the repository and install the required Python packages. The pipeline relies on `requests` for local API interactions, `Pillow` for in-RAM image sanitization, and `transformers`/`torch` for cascade filtering.
 
 ```bash
-git clone [https://github.com/KretliJ/Rakeddit.git](https://github.com/KretliJ/Rakeddit.git)
+git clone https://github.com/KretliJ/Rakeddit
 cd Rakeddit
 pip install -r requirements.txt
 ```
@@ -76,14 +67,12 @@ pip install -r requirements.txt
 #### 3. Local AI Provisioning (Ollama)
 
 ```bash
-# Pull the main inference engine if you wish to use it later
+# Pull the Sentiment Polarity Classifier Model
 ollama pull cardiffnlp/twitter-xlm-roberta-base-sentiment
 
 # Pull the Image Reader Engine (Vision / OCR)
 ollama pull qwen3-vl:2b-instruct
 ```
-
-(Note: The BERTimbau / Toxicity model will be downloaded automatically via HuggingFace on the first run).
 
 #### 4. Configuration (config.ini)
 
@@ -118,6 +107,12 @@ python main.py
 
 ### [ VERSION HISTORY ]
 
+* Version 4.1.0 (Unified Analysis Update)
+
+  * Unified legacy analytic pipelines into an optimized MVC model (GUI.py, Methods.py, Utilities.py).
+  * Implemented structured multi-folder routing based on user-selected grouping strategies.
+  * Engineered multi-threaded "Run All" pipeline runner to optimize bulk processing loops.
+  * Standardized file outputs to PDF
 * version 3.1.0 (Analysis Update)
 
   * Final analytics pipeline build
@@ -162,19 +157,10 @@ python main.py
 
 ### [ DISCLAIMER ]
 
-Rakeddit is provided "as is" for educational and research purposes only.
+Rakeddit and related modules are provided "as is" for educational, scientific research, and result reproduction purposes only.
 
-- The author assumes no liability for misuse or rate-limit violations.
+- The authors and developer assume zero liability for platform rate-limit compliance infractions.
 - Users are responsible for complying with Reddit's ToS and
   applicable data protection laws (GDPR, LGPD, CCPA, etc.).
 - "Rakeddit" is a name. Not legal advice.
-  - Because calling it a scraper isn't legally defensible (nor particularly truthful)
-
-### [ NOTES ]
-
-**Draft**
-A structural attention propagation effect found during secondary validation with a GNN was not part of the original hypothesis. It emerged from:
-
-1. A practical decision to process images because I had GPU idle time and the wish to improve precision with modest models
-2. A timing anomaly that initially appeared to be measurement error
-3. Approximately three hours of staring at a table until I stopped fighting the data and started listening to it
+  - Because calling it a scraper isn't particularly truthful.
