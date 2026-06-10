@@ -3,12 +3,13 @@
 *.jsonl
 results/
 
-# remember kids, don't leak your API keys!!
+# remember kids, don't leak your stuff!!
 config.ini
 
-# also don't leak your sensitive prompts
+# also don't go sharing random logs
 ollama.log
 *.log
+logging/
 
 # as fun as memes and GIFs are they don't look great in github
 *.png
@@ -18,9 +19,8 @@ ollama.log
 *.mp4
 models/
 
-# avoid uploading unfinished logs
-logging/
-
+# avoid uploading cache
+.parquet
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
