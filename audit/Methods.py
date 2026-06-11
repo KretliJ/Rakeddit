@@ -197,8 +197,13 @@ class AnalyticsEngine:
         print(f"   -> Phase 3: Extraction Complete. {len(self.df_cascades)} cascades loaded.")
         return True
 
-    def _prepare_quartiles(self):
+    def _prepare_quartiles(self, interactive_only=False):
         df = self.df_cascades.copy()
+        
+        # Filtro de Reciprocidade (Ruído de difusão isolado)
+        if interactive_only:
+            df = df[df['Total_Motifs'] > 0].copy()
+            
         neg_col = 'Perc_Negative' if 'Perc_Negative' in df.columns else 'perc_negative'
         try:
             df['neg_quartile'] = pd.qcut(df[neg_col], q=4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
@@ -209,9 +214,10 @@ class AnalyticsEngine:
                                         include_lowest=True)
         return df
 
-    def _get_grouping_config(self, grouping, df):
+    def _get_grouping_config(self, grouping, df, interactive_only=False):
         """Helper to dynamically fetch target columns, labels, specific color palettes, and output directory."""
-        output_dir = os.path.join(Config.RESULTS_DIR, grouping)
+        folder_suffix = "_Interactive_Cascades" if interactive_only else ""
+        output_dir = os.path.join(Config.RESULTS_DIR, f"{grouping}{folder_suffix}")
         os.makedirs(output_dir, exist_ok=True)
 
         if grouping == 'Categories':
@@ -227,14 +233,13 @@ class AnalyticsEngine:
     # =========================================================
     # FIGURA 1: TRENDLINES E CCDFs ESTRUTURAIS
     # =========================================================
-    def plot_structural_ccdfs(self, grouping="Categories"):
+    def plot_structural_ccdfs(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating Figure 1 Structural CCDFs and Trendlines by {grouping}...")
         Config.set_sns_theme()
-        df = self._prepare_quartiles()
+        df = self._prepare_quartiles(interactive_only)
         
-        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df)
+        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
-        # 1. Plot CCDFs
         metrics = [
             ('Structural_Virality', 'STRUCTURAL VIRALITY (WIENER)', 'Fig1_CCDF_Structural_Virality.pdf'),
             ('Max_Depth', 'MAX CASCADE DEPTH', 'Fig1_CCDF_Max_Depth.pdf'),
@@ -259,11 +264,11 @@ class AnalyticsEngine:
                         linestyle=self.colors['LINESTYLES'][i % len(self.colors['LINESTYLES'])], 
                         linewidth=3.5, label=label_text)
 
-            ax.set_xlabel(xlabel, fontsize=18, fontweight='bold')
-            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
+            ax.set_xlabel(xlabel, fontsize=16, fontweight='bold')
+            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.9, edgecolor='black')
-            ax.tick_params(labelsize=16)
+            ax.legend(fontsize=12, loc='upper right', framealpha=0.9, edgecolor='black')
+            ax.tick_params(labelsize=14)
             sns.despine()
             
             out_file = os.path.join(output_dir, filename)
@@ -271,7 +276,6 @@ class AnalyticsEngine:
             plt.close()
             print(f"  -> Guardado: {filename}")
 
-        # 2. Plot Trendlines (Time vs Depth & Time vs Users)
         trendlines = [
             ('Max_Depth', 'CASCADE DEPTH', 'Fig1_Trendline_Depth_vs_Time.pdf'),
             ('Unique_Users', 'UNIQUE PARTICIPATING USERS', 'Fig1_Trendline_Users_vs_Time.pdf')
@@ -287,10 +291,10 @@ class AnalyticsEngine:
                          palette=palette_dict, marker="o", markersize=8, 
                          linewidth=3.5, estimator='mean', errorbar=None, ax=ax)
             
-            ax.set_xlabel(xlabel, fontsize=18, fontweight='bold')
-            ax.set_ylabel('AVERAGE DURATION (MINUTES)', fontsize=18, fontweight='bold')
-            ax.tick_params(labelsize=16)
-            ax.legend(title=grouping.upper(), fontsize=16, loc='upper left', framealpha=0.9, edgecolor='black')
+            ax.set_xlabel(xlabel, fontsize=16, fontweight='bold')
+            ax.set_ylabel('AVERAGE DURATION (MINUTES)', fontsize=16, fontweight='bold')
+            ax.tick_params(labelsize=14)
+            ax.legend(title=grouping.upper(), fontsize=12, loc='upper left', framealpha=0.9, edgecolor='black')
             sns.despine()
             
             out_file = os.path.join(output_dir, filename)
@@ -301,12 +305,12 @@ class AnalyticsEngine:
     # =========================================================
     # FIGURA 2: MOTIFS HEATMAP
     # =========================================================
-    def run_motif_analysis(self, grouping="Categories"):
+    def run_motif_analysis(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating Figure 2 Motifs Heatmap + Kruskal-Wallis Tests by {grouping}...")
-        df = self._prepare_quartiles()
+        df = self._prepare_quartiles(interactive_only)
         df = df[df['Total_Motifs'] > 0].copy()
         
-        group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df)
+        group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
         motif_cols = ['Dyad', 'Mutual Dyad', 'Chain', 'Fan-In', 'Fan-Out', 'Triangle', 'Recip. Triangle']
         
         for m in motif_cols:
@@ -319,8 +323,8 @@ class AnalyticsEngine:
         
         fig, ax = plt.subplots(figsize=(15, 6))
         sns.heatmap(agg_mean, annot=labels, fmt="", cmap=self.colors['CMAP'], cbar=True, ax=ax, annot_kws={'size': 11, 'weight': 'bold'})
-        ax.set_ylabel(grouping.upper(), fontsize=16, fontweight='bold')
-        ax.set_xlabel("USER INTERACTION MOTIFS PROPORTION", fontsize=16, fontweight='bold')
+        ax.set_ylabel(grouping.upper(), fontsize=14, fontweight='bold')
+        ax.set_xlabel("USER INTERACTION MOTIFS PROPORTION", fontsize=14, fontweight='bold')
         ax.set_xticklabels(motif_cols)
         ax.set_yticklabels(groups_list, rotation=0)
         
@@ -333,12 +337,12 @@ class AnalyticsEngine:
     # =========================================================
     # FIGURA 3: AVERAGE SCORE CCDF
     # =========================================================
-    def run_figure3_average_score(self, grouping="Categories"):
+    def run_figure3_average_score(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating Figure 3 Average Score CCDF by {grouping}...")
         Config.set_sns_theme()
-        df = self._prepare_quartiles()
+        df = self._prepare_quartiles(interactive_only)
         
-        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df)
+        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
         fig, ax = plt.subplots(figsize=(10, 7))
         
@@ -356,11 +360,11 @@ class AnalyticsEngine:
                     linestyle=self.colors['LINESTYLES'][j % len(self.colors['LINESTYLES'])], 
                     linewidth=3.5, label=label_text)
 
-        ax.set_xlabel('AVERAGE CASCADE SCORE (UPVOTES - DOWNVOTES)', fontsize=18, fontweight='bold')
-        ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
+        ax.set_xlabel('AVERAGE CASCADE SCORE (UPVOTES - DOWNVOTES)', fontsize=16, fontweight='bold')
+        ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
         ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-        ax.legend(fontsize=16, loc='upper right', framealpha=0.9, edgecolor='black')
-        ax.tick_params(labelsize=16)
+        ax.legend(fontsize=12, loc='upper right', framealpha=0.9, edgecolor='black')
+        ax.tick_params(labelsize=14)
         sns.despine()
         
         out_file = os.path.join(output_dir, "Fig3_CCDF_Average_Score.pdf")
@@ -372,11 +376,11 @@ class AnalyticsEngine:
     # =========================================================
     # OUTRAS ANÁLISES (RQ2, RQ3, Stats, Taxonomy)
     # =========================================================
-    def run_statistical_reports(self, grouping="Categories"):
+    def run_statistical_reports(self, grouping="Categories", interactive_only=False):
         print(f"[*] Exporting Rigorous Statistical Report PDF by {grouping}...")
-        df = self._prepare_quartiles()
+        df = self._prepare_quartiles(interactive_only)
         
-        group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df)
+        group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
         stats_results = []
         metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Unique_Users', 'Cascade_Size', 'Duration_Minutes', 'Average_Score']
@@ -426,14 +430,14 @@ class AnalyticsEngine:
         table.scale(1.2, 1.8)
         
         plt.title(f"Statistical Validation Report ({grouping})", 
-                  fontsize=16, fontweight='bold', pad=20)
+                  fontsize=14, fontweight='bold', pad=20)
         
         out_file = os.path.join(output_dir, "Statistical_Report_Summary.pdf")
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"   -> Guardado: Statistical_Report_Summary.pdf")
 
-    def run_taxonomy_analysis(self, grouping="Categories"):
+    def run_taxonomy_analysis(self, grouping="Categories", interactive_only=False):
         if grouping in ["Quartiles", "Sentiments"]:
             print(f"  [!] Aviso: Taxonomy Analysis agrega Subreddits e é baseada estritamente em Categorias. A forçar 'Categories'...")
             grouping = "Categories"
@@ -441,10 +445,14 @@ class AnalyticsEngine:
         print("[*] Generating BCC Taxonomy Trendline Plot...")
         Config.set_sns_theme()
         
-        output_dir = os.path.join(Config.RESULTS_DIR, grouping)
-        os.makedirs(output_dir, exist_ok=True)
+        # O filtro interactive_only aqui precisa ser passado manual se formos criar a pasta certa
+        df = self.df_cascades.copy()
+        if interactive_only:
+            df = df[df['Total_Motifs'] > 0].copy()
+            
+        _, _, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
         
-        sub_stats = self.df_cascades.groupby(['Subreddit', 'Category']).agg(
+        sub_stats = df.groupby(['Subreddit', 'Category']).agg(
             Median_Virality=('Structural_Virality', 'median'),
             Global_Toxicity=('Perc_Negative', 'mean')
         ).reset_index()
@@ -464,21 +472,21 @@ class AnalyticsEngine:
         
         slope, intercept, r_value, p_value, std_err = linregress(sub_stats['Median_Virality'], sub_stats['Global_Toxicity'])
         stats_text = f"Linear Regression\n$R^2 = {r_value**2:.4f}$\n$p = {p_value:.4e}$"
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=16, fontweight='bold',
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=14, fontweight='bold',
                 verticalalignment='top', bbox=dict(facecolor='#f9f9f9', alpha=0.9, edgecolor='black', boxstyle='round,pad=0.5', lw=1.5), zorder=6)
 
         texts = []
         for _, row in sub_stats.iterrows():
             pos_x, pos_y = row['Median_Virality'], row['Global_Toxicity']
             label_text = f"r/{row['Subreddit']}\n({pos_x:.2f}, {pos_y:.1f}%)"
-            texts.append(ax.text(pos_x, pos_y, label_text, fontsize=16, fontweight='bold', zorder=4))
+            texts.append(ax.text(pos_x, pos_y, label_text, fontsize=12, fontweight='bold', zorder=4))
         
         if adjust_text:
             adjust_text(texts, expand_points=(1.5, 1.5), arrowprops=dict(arrowstyle='-', color='gray', lw=0.5, shrinkA=5, shrinkB=5))
 
-        ax.legend(title="CATEGORIES", fontsize=16, loc='lower right', framealpha=0.9, edgecolor='black')
-        ax.set_xlabel('MEDIAN STRUCTURAL VIRALITY', fontsize=18, fontweight='bold')
-        ax.set_ylabel('CONFLICT INDEX (% NEGATIVE)', fontsize=18, fontweight='bold')
+        ax.legend(title="CATEGORIES", fontsize=12, loc='lower right', framealpha=0.9, edgecolor='black')
+        ax.set_xlabel('MEDIAN STRUCTURAL VIRALITY', fontsize=16, fontweight='bold')
+        ax.set_ylabel('CONFLICT INDEX (% NEGATIVE)', fontsize=16, fontweight='bold')
         
         out_file = os.path.join(output_dir, "BCC_Taxonomy_Trendline.pdf")
         plt.tight_layout()
@@ -486,15 +494,16 @@ class AnalyticsEngine:
         plt.close()
         print(f"   -> Saved: BCC_Taxonomy_Trendline.pdf")
 
-    def run_triadic_analysis(self, grouping="Categories"):
+    def run_triadic_analysis(self, grouping="Categories", interactive_only=False):
         if grouping in ["Quartiles", "Sentiments"]:
             print(f"  [!] Aviso: Triadic Analysis é extraída estruturalmente por Categorias no Parser. A forçar 'Categories'...")
             grouping = "Categories"
 
         print("[*] Generating Normalized Triadic Heatmap (RQ2)...")
         
-        output_dir = os.path.join(Config.RESULTS_DIR, grouping)
-        os.makedirs(output_dir, exist_ok=True)
+        # Interactive Only tem pouco impacto aqui já que a tríade por definição exige interação (avo->pai->filho)
+        # Mas atualizamos a pasta
+        _, _, _, output_dir = self._get_grouping_config(grouping, self.df_cascades, interactive_only)
 
         df_counts = pd.DataFrame(self.triad_counts).fillna(0)
         
@@ -517,8 +526,8 @@ class AnalyticsEngine:
                     cbar_kws={'label': 'Global Concentration (A / Z) %'}, 
                     linewidths=1, ax=ax, annot_kws={'size': 14, 'weight': 'bold'})
         
-        ax.set_ylabel("TRIADIC SENTIMENT RELATIONS (T1 → T2 → T3)", fontsize=16, fontweight='bold')
-        ax.set_xlabel("SUBREDDIT CATEGORY", fontsize=16, fontweight='bold')
+        ax.set_ylabel("TRIADIC SENTIMENT RELATIONS (T1 → T2 → T3)", fontsize=14, fontweight='bold')
+        ax.set_xlabel("SUBREDDIT CATEGORY", fontsize=14, fontweight='bold')
         plt.xticks(rotation=0)
         ax.set_yticklabels([f"{t}" for t in Config.ORDERED_TRIADS], rotation=0)
 
@@ -528,12 +537,12 @@ class AnalyticsEngine:
         plt.close()
         print(f"   -> Saved: RQ2_Triadic_Sentiment_Motifs.pdf")
 
-    def run_rq3_analysis(self, grouping="Categories"):
+    def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
         Config.set_sns_theme()
-        df = self._prepare_quartiles()
+        df = self._prepare_quartiles(interactive_only)
         
-        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df)
+        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
         palette_dict = dict(zip(groups_list, current_colors))
         
         sentiments = ['POSITIVE', 'NEUTRAL', 'NEGATIVE']
@@ -552,32 +561,26 @@ class AnalyticsEngine:
             
             slope, intercept, r_value, p_value, std_err = linregress(df_sub['Structural_Virality'], df_sub['Perc_Negative'])
             stats_text = f"Trendline ($R^2={r_value**2:.3f}$)\n$p={p_value:.1e}$"
-            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=16, fontweight='bold',
+            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=14, fontweight='bold',
                     verticalalignment='top', bbox=dict(facecolor='white', alpha=0.9, edgecolor='black', boxstyle='round,pad=0.5'))
             
             ax.set_title(f"{sentiment} DOMINANT CASCADES", fontsize=18, fontweight='bold', color=self.colors['SENTIMENTS'][sentiment], pad=15)
             ax.set_xlabel('STRUCTURAL VIRALITY', fontsize=16, fontweight='bold')
-            if i == 0: ax.set_ylabel('NEGATIVE SENTIMENT (%)', fontsize=16, fontweight='bold')
+            if i == 0: ax.set_ylabel('TOXICITY (%)', fontsize=16, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
 
-        # =========================================================================
-        # GERAÇÃO DA LEGENDA MESTRE INFERIOR PARA OS PONTOS
-        # =========================================================================
         from matplotlib.lines import Line2D # type: ignore
-        
         custom_handles = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor=current_colors[idx], 
                    markersize=14, label=cat) for idx, cat in enumerate(groups_list)
         ]
         
-        # Anexa a legenda ao gráfico do meio (axes[1]), colocando-a na parte inferior
         axes[1].legend(handles=custom_handles, title=grouping.upper(), loc='upper center', 
-                       bbox_to_anchor=(0.5, -0.15), ncol=len(groups_list), fontsize=16, 
+                       bbox_to_anchor=(0.5, -0.15), ncol=len(groups_list), fontsize=14, 
                        title_fontsize=16, frameon=True, edgecolor='black')
 
         out_file = os.path.join(output_dir, "RQ3_Taxonomy_Trendlines.pdf")
         
-        # Ajuste de layout rigoroso para que a legenda inferior não seja cortada ao salvar
         plt.tight_layout()
         plt.subplots_adjust(bottom=0.2) 
         plt.savefig(out_file, dpi=300, bbox_inches='tight')

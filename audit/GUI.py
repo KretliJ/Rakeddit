@@ -70,6 +70,10 @@ class AppGUI:
         self.grouping_combo.current(0) 
         self.grouping_combo.pack(fill=tk.X, pady=5)
 
+        self.interactive_var = tk.BooleanVar(value=False)
+        self.chk_interactive = ttk.Checkbutton(left_frame, text="Filter: Interactive Cascades Only", variable=self.interactive_var, state=tk.DISABLED)
+        self.chk_interactive.pack(fill=tk.X, pady=(5, 15))
+
         # --- 4. Botões de Execução ---
         btn_frame = ttk.Frame(left_frame)
         btn_frame.pack(fill=tk.X, pady=15)
@@ -103,44 +107,45 @@ class AppGUI:
     def enable_analysis_controls(self):
         self.combo.config(state="readonly")
         self.grouping_combo.config(state="readonly")
+        self.chk_interactive.config(state=tk.NORMAL)
         self.btn_run.config(state=tk.NORMAL)
         self.btn_run_all.config(state=tk.NORMAL)
 
     def trigger_selected_analysis(self):
         selected_task_name = self.combo_var.get()
         selected_grouping = self.grouping_var.get()
+        is_interactive = self.interactive_var.get() # <--- NOVA LINHA
         if selected_task_name in self.analysis_tasks:
             target_function = self.analysis_tasks[selected_task_name]
-            self.run_task_in_thread(target_function, selected_grouping)
+            self.run_task_in_thread(target_function, selected_grouping, is_interactive) # <--- ATUALIZADA
 
     def trigger_all_analyses(self):
         selected_grouping = self.grouping_var.get()
-        self.run_all_tasks_in_thread(selected_grouping)
+        is_interactive = self.interactive_var.get() # <--- NOVA LINHA
+        self.run_all_tasks_in_thread(selected_grouping, is_interactive) # <--- ATUALIZADA
 
-    def run_task_in_thread(self, task_func, grouping):
+    def run_task_in_thread(self, task_func, grouping, is_interactive): # <--- ATUALIZADA
         def wrapper():
             self.root.after(0, self._set_controls_state, tk.DISABLED)
-            task_func(grouping=grouping)
+            task_func(grouping=grouping, interactive_only=is_interactive) # <--- ATUALIZADA
             print("\n[✔] Task completed successfully.")
             self.root.after(0, self._set_controls_state, tk.NORMAL)
-
         threading.Thread(target=wrapper, daemon=True).start()
 
-    def run_all_tasks_in_thread(self, grouping):
+    def run_all_tasks_in_thread(self, grouping, is_interactive): # <--- ATUALIZADA
         def wrapper():
             self.root.after(0, self._set_controls_state, tk.DISABLED)
-            print(f"\n[🚀] Starting FULL PIPELINE for {grouping}...")
+            print(f"\n[🚀] Starting FULL PIPELINE for {grouping} (Interactive Only: {is_interactive})...")
             
             for task_name, task_func in self.analysis_tasks.items():
                 print(f"\n---> Running module: {task_name}")
                 try:
-                    task_func(grouping=grouping)
+                    task_func(grouping=grouping, interactive_only=is_interactive) # <--- ATUALIZADA
                 except Exception as e:
                     print(f"  [ERROR] Failed to run {task_name}: {e}")
             
             print("\n[✔✔✔] ALL TASKS COMPLETED SUCCESSFULLY.")
             self.root.after(0, self._set_controls_state, tk.NORMAL)
-
         threading.Thread(target=wrapper, daemon=True).start()
 
     def _set_controls_state(self, state):
