@@ -18,27 +18,36 @@ WARNING:
 ### [ PIPELINE STAGES ]
 
 #### STAGE 1: Subreddit Ingestion
+
 The system identifies active threads and extracts the raw JSON structure of a community's front page.
+
 * **Mechanism:** Recursive `GET` requests to native `.json` endpoints.
 * **Compliance:** Randomized jitter (3.0s - 7.0s) and exponential back-off for HTTP 429 exceptions.
 
 #### STAGE 2: Relational Flattening (Tree Processing)
+
 Transforms nested, conversational JSON reply hierarchies into flat, highly connected relational rows without breaking structural cascade vectors.
+
 * **Mechanism:** Stack-based Depth-First Search (DFS) execution bypassing Python standard stack recursion depth errors on long-tail debate layers.
 * **Graph Integrity:** Injects a `post_header` as root anchor (`depth: 0`). Sanitizes AutoMod and deleted accounts to retain path connectivity, computing exact temporal delta properties and human-readable Unix timestamps.
 
 #### STAGE 3: Multimodal Context Enrichment
+
 Sanitizes and processes visual elements (JPEGs, PNGs, GIFs) into semantic annotations to capture rhetorical intent and OCR data without interrupting the main text-based pipeline.
+
 * **Mechanism:** In-RAM image interceptor (`Pillow`) flattens alpha channels, rescaling dimensions to safeguard VRAM limits.
 * **Vision Engine:** Standardized schemas connecting to local Small Vision Language Models (e.g., `Qwen2.5-VL` via `Ollama`) to handle visual extraction protocols.
 
 #### STAGE 4: Analytics Engine & Unified Orchestration
+
 Computes behavioral features, user structures, and validation curves across different subreddits.
+
 * **Structural Suite (Figure 1):** Renders high-fidelity Complementary Cumulative Distribution Functions (CCDFs) spanning Structural Virality (Wiener index mappings), Max Depth, Max Breadth, Total Message Volumes, and Participant Scales. Includes bivariant temporal trendlines tracking velocity dynamics over depth and size boundaries.
 * **User Interaction Motifs (Figure 2):** Extracts directed structural configurations (Dyads, Mutual Pairs, Chains, Fan-In, Fan-Out, Triangles) and executes multi-group Kruskal-Wallis non-parametric significance testing.
 * **Platform Interaction Reactions (Figure 3):** Computes CCDFs tracking Average Cascade Scores (Upvotes minus Downvotes), mapping algorithmic reinforcement behavior against group toxicity levels.
 * **Triadic Sentiments (RQ2):** Performs sequential time-series scanning across grandfather-father-son structures to trace emotional transitions (Persistence, Convergence, Shifts, Oscillations).
 * **Taxonomy & Intersections (BCC / RQ3):** Generates structural regression curves mapping conflict indexes against platform virality boundaries, integrating global multi-marker master legends for dense point structures.
+
 ---
 
 ### [ USAGE ]
@@ -106,7 +115,14 @@ python main.py
 ```
 
 ### [ VERSION HISTORY ]
+* Version 4.2.2
 
+  * Improved text validation
+  * Refactored homophilia method
+  * Refactored reports
+* Version 4.2.0 (NLP Engine Update)
+
+  * BERTopic and wordcloud analysis integration
 * Version 4.1.0 (Unified Analysis Update)
 
   * Unified legacy analytic pipelines into an optimized MVC model (GUI.py, Methods.py, Utilities.py).

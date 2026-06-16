@@ -29,7 +29,9 @@ class AppGUI:
             "4. Triadic Analysis (RQ2)": self.engine.run_triadic_analysis,
             "5. Taxonomy Analysis (BCC)": self.engine.run_taxonomy_analysis,
             "6. Virality vs Sentiment (RQ3)": self.engine.run_rq3_analysis,
-            "7. Statistical Report": self.engine.run_statistical_reports
+            "7. Statistical Report": self.engine.run_statistical_reports,
+            "8. Homophily Analysis": self.engine.run_user_homophily_analysis,
+            "9. Ablation Blind vs Multimodal": self.engine.run_ablation_matrix_analysis
         }
         
         self.setup_ui()
@@ -83,6 +85,11 @@ class AppGUI:
 
         self.btn_run_all = ttk.Button(btn_frame, text="Run All", state=tk.DISABLED, command=self.trigger_all_analyses)
         self.btn_run_all.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
+
+        ttk.Separator(left_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+        
+        self.btn_nuke = ttk.Button(left_frame, text="☢ Nuke Cache", command=self.nuke_cache)
+        self.btn_nuke.pack(fill=tk.X, pady=(5, 5))
 
         # --- Console Lateral ---
         ttk.Label(right_frame, text="Execution Console", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 5))
@@ -153,6 +160,38 @@ class AppGUI:
         self.btn_run_all.config(state=state)
         self.combo.config(state="readonly" if state == tk.NORMAL else tk.DISABLED)
         self.grouping_combo.config(state="readonly" if state == tk.NORMAL else tk.DISABLED)
+
+    def nuke_cache(self):
+        """Apaga todos os ficheiros de cache para forçar uma nova extração do zero."""
+        from Utilities import Config
+        import os
+        from tkinter import messagebox
+        
+        parquet_path = Config.CACHE_PATH
+        triads_path = Config.CACHE_PATH.replace('.parquet', '_triads.json')
+        homophily_path = Config.CACHE_PATH.replace('.parquet', '_homophily.json')
+        
+        files_deleted = 0
+        deleted_names = []
+        
+        for path in [parquet_path, triads_path, homophily_path]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    files_deleted += 1
+                    deleted_names.append(os.path.basename(path))
+                except Exception as e:
+                    print(f"  [ERROR] Não foi possível apagar {path}: {e}")
+
+        if files_deleted > 0:
+            msg = f"BOOM! {files_deleted} ficheiro(s) de cache destruído(s):\n\n"
+            msg += "\n".join([f"- {name}" for name in deleted_names])
+            msg += "\n\nA próxima execução fará a extração profunda do JSONL."
+            print(f"\n[☢] {msg}")
+            messagebox.showinfo("Cache Nuked", msg)
+        else:
+            print("\n[!] O cache já está vazio. Nada para destruir.")
+            messagebox.showinfo("Cache Vazio", "O cache já está limpo!\nA próxima execução fará a extração profunda do JSONL.")
 
 if __name__ == "__main__":
     root = tk.Tk()

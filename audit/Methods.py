@@ -32,29 +32,54 @@ class AnalyticsEngine:
 
     def load_or_extract_data(self):
         triads_cache_path = Config.CACHE_PATH.replace('.parquet', '_triads.json')
+        homophily_cache_path = Config.CACHE_PATH.replace('.parquet', '_homophily.json')
         
-        if os.path.exists(Config.CACHE_PATH) and os.path.exists(triads_cache_path):
+        if os.path.exists(Config.CACHE_PATH) and os.path.exists(triads_cache_path) and os.path.exists(homophily_cache_path):
             print(f"[*] Cache encontrado. A carregar DataFrame de {Config.CACHE_PATH}...")
             self.df_cascades = pd.read_parquet(Config.CACHE_PATH)
             
             with open(triads_cache_path, 'r', encoding='utf-8') as f:
                 self.triad_counts = json.load(f)
                 
-            print("   -> DataFrame e Tríades carregados instantaneamente para a RAM.")
+            # Carrega os dados de homofilia do cache
+            with open(homophily_cache_path, 'r', encoding='utf-8') as f:
+                homophily_data = json.load(f)
+                self.global_sentiments = homophily_data.get('global_sentiments', {})
+                self.user_sentiments = defaultdict(lambda: {'total': 0, 'negative': 0}, homophily_data.get('user_sentiments', {}))
+                # Converte listas de volta para tuplas para o processamento de arestas
+                self.global_user_edges = [tuple(x) for x in homophily_data.get('global_user_edges', [])]
+                
+            print("   -> DataFrame, Tríades e Homofilia carregados instantaneamente para a RAM.")
             return True
         else:
-            print("[*] Cache não encontrado ou incompleto. A iniciar extração profunda dos grafos...")
+            print("[*] Cache não encontrado ou desatualizado. A iniciar extração profunda dos grafos...")
             sucesso = self.extract_and_compute_all()
+            
             if sucesso and self.df_cascades is not None and not self.df_cascades.empty:
                 self.df_cascades.to_parquet(Config.CACHE_PATH, index=False)
+                
                 with open(triads_cache_path, 'w', encoding='utf-8') as f:
                     json.dump(self.triad_counts, f)
-                print(f"   -> Cache guardado com sucesso (Parquet + JSON).")
+                    
+                # Guarda os novos dados globais num cache separado
+                with open(homophily_cache_path, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'global_sentiments': self.global_sentiments,
+                        'user_sentiments': dict(self.user_sentiments),
+                        'global_user_edges': self.global_user_edges
+                    }, f)
+                    
+                print(f"   -> Cache guardado com sucesso (Parquet + JSONs).")
             return sucesso
 
     def extract_and_compute_all(self):
         print("[*] Initiating Single-Pass Extraction (Unified Orchestrator)...")
         
+        # NOVOS RASTREADORES GLOBAIS
+        self.global_sentiments = {'POSITIVE': 0, 'NEUTRAL': 0, 'NEGATIVE': 0}
+        self.user_sentiments = defaultdict(lambda: {'total': 0, 'negative': 0})
+        self.global_user_edges = [] # Para a rede de homofilia (source, target)
+
         with open(Config.MULTIMODAL_PATH, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -81,6 +106,16 @@ class AnalyticsEngine:
                         'metadata_score': score
                     }
                     
+                    # Rastreio Global de Sentimentos da Base
+                    if label in Config.VALID_SENTIMENTS:
+                        self.global_sentiments[label] += 1
+                        # FILTRO MÍNIMO: Remove apenas o vácuo dos deletados e a moderação automatizada do Reddit
+                        # Bots informativos (como robôs de dicionário ou links) passam livremente e são contabilizados
+                        if author not in ['[deleted]', 'deleted', 'automoderator', 'redditcaresresources']:
+                            self.user_sentiments[author]['total'] += 1
+                            if label == 'NEGATIVE':
+                                self.user_sentiments[author]['negative'] += 1
+
                     if depth == 1 or is_post_reply:
                         self.sub_roots[sub].append(n_id)
                     elif p_id:
@@ -104,6 +139,9 @@ class AnalyticsEngine:
                 sentiments = {'POSITIVE': 0, 'NEUTRAL': 0, 'NEGATIVE': 0}
                 total_valid = 0
                 
+                # Para o longest_negative_run
+                node_labels = {}
+                
                 while queue:
                     curr, actual_parent = queue.pop(0)
                     G_struct.add_node(curr)
@@ -113,6 +151,8 @@ class AnalyticsEngine:
                     author = nd.get('author', '[deleted]')
                     lbl = nd.get('label', 'UNKNOWN')
                     score = nd.get('metadata_score', 0)
+                    
+                    node_labels[curr] = lbl
                     
                     if ts: timestamps.append(ts)
                     if author not in ['[deleted]', 'deleted']: authors.add(author)
@@ -125,7 +165,9 @@ class AnalyticsEngine:
                     if actual_parent is not None:
                         G_struct.add_edge(actual_parent, curr)
                         parent_author = self.node_memory.get(actual_parent, {}).get('author', '[deleted]')
+                        
                         if author not in ['[deleted]', 'deleted'] and parent_author not in ['[deleted]', 'deleted']:
+                            self.global_user_edges.append((author, parent_author)) # Salva para homofilia
                             if author != parent_author:
                                 G_users.add_edge(author, parent_author)
                     
@@ -135,6 +177,21 @@ class AnalyticsEngine:
                 num_nodes = G_struct.number_of_nodes()
                 if num_nodes < 3 or total_valid == 0: continue
                 
+                # DP Simples para achar o longest_negative_run
+                dp_neg = {}
+                try:
+                    for n in nx.topological_sort(G_struct):
+                        if node_labels.get(n) == 'NEGATIVE':
+                            preds = list(G_struct.predecessors(n))
+                            dp_neg[n] = (dp_neg[preds[0]] + 1) if preds and preds[0] in dp_neg else 1
+                        else:
+                            dp_neg[n] = 0
+                    longest_neg_run = max(dp_neg.values()) if dp_neg else 0
+                except nx.NetworkXUnfeasible:
+                    longest_neg_run = 0
+
+                ratio_neg_run = (longest_neg_run / sentiments['NEGATIVE']) if sentiments['NEGATIVE'] > 0 else 0.0
+
                 G_un = G_struct.to_undirected()
                 virality = nx.wiener_index(G_un) / (num_nodes * (num_nodes - 1)) if num_nodes > 1 else 1.0
                 
@@ -145,73 +202,113 @@ class AnalyticsEngine:
                     for dist in lengths.values(): level_counts[dist] += 1
                     max_breadth = max(level_counts.values()) if level_counts else 1
                 except:
-                    max_depth = 1
-                    max_breadth = 1
+                    max_depth, max_breadth = 1, 1
                     
                 unique_users = max(len(authors), 1)
-                average_score = np.mean(scores) if scores else 0.0
+                duration_minutes = (np.sort(timestamps)[-1] - np.sort(timestamps)[0])/60.0 if len(timestamps) >= 2 else 0.0
+                duration_hours = duration_minutes / 60.0
                 
+                # Cálculo real dos Motifs estruturais
                 dyads = sum(1 for u, v in G_users.edges() if not G_users.has_edge(v, u))
                 mutual_dyads = sum(1 for u, v in G_users.edges() if G_users.has_edge(v, u)) / 2
                 triads = nx.triadic_census(G_users) if G_users.number_of_nodes() >= 3 else defaultdict(int)
                 
                 motifs = {
                     'Dyad': dyads, 'Mutual Dyad': mutual_dyads, 'Chain': triads.get('021C', 0),
-                    'Fan-In': triads.get('021D', 0), 'Fan-Out': triads.get('021U', 0),
+                    'Fan-In': triads.get('021U', 0), 'Fan-Out': triads.get('021D', 0),
                     'Triangle': triads.get('030T', 0), 'Recip. Triangle': triads.get('300', 0)
                 }
-                
-                def dfs_paths(node, current_path):
-                    current_path.append(node)
-                    if len(current_path) >= 3:
-                        s1 = self.node_memory.get(current_path[-3], {}).get('label')
-                        s2 = self.node_memory.get(current_path[-2], {}).get('label')
-                        s3 = self.node_memory.get(current_path[-1], {}).get('label')
-                        if all(s in Config.VALID_SENTIMENTS for s in [s1, s2, s3]):
-                            t_name = Config.TRIAD_MAPPING.get((s1, s2, s3))
-                            if t_name: self.triad_counts[cat][t_name] += 1
-                    for neighbor in G_struct.successors(node):
-                        dfs_paths(neighbor, current_path.copy())
-                        
-                dfs_paths(root_id, [])
-                
-                duration_minutes = (np.sort(timestamps)[-1] - np.sort(timestamps)[0])/60.0 if len(timestamps) >= 2 else 0.0
-                
                 cascades_data.append({
                     'Cascade_ID': root_id, 'Subreddit': sub, 'Category': cat,
                     'Structural_Virality': virality, 'Cascade_Size': num_nodes,
                     'Duration_Minutes': duration_minutes,
+                    'Duration_Hours': duration_hours,
                     'Max_Depth': max_depth,
                     'Max_Breadth': max_breadth,
                     'Unique_Users': unique_users,
-                    'Average_Score': average_score,
+                    'Average_Score': np.mean(scores) if scores else 0.0,
                     'Perc_Negative': (sentiments['NEGATIVE'] / total_valid) * 100,
-                    'Perc_Neutral': (sentiments['NEUTRAL'] / total_valid) * 100,
-                    'Perc_Positive': (sentiments['POSITIVE'] / total_valid) * 100,
+                    'Longest_Neg_Run_Ratio': ratio_neg_run,
                     'Dominant_Sentiment': max(sentiments, key=sentiments.get),
                     'Total_Motifs': sum(motifs.values()),
                     **motifs
                 })
 
         self.df_cascades = pd.DataFrame(cascades_data)
-        print(f"   -> Phase 3: Extraction Complete. {len(self.df_cascades)} cascades loaded.")
+        print(f"   -> Phase 3 Complete. {len(self.df_cascades)} cascades loaded.")
         return True
+
+    def print_dataset_overview(self):
+        """Gera os dados brutos solicitados para as Tabelas 1, 2 e 3 do TCC e salva num arquivo TXT."""
+        import os
+        import pandas as pd
+        from Utilities import Config
+        
+        df_cascades = self._prepare_quartiles(interactive_only=False)
+        output_file = os.path.join(Config.RESULTS_DIR, "Detailed_Dataset_Stats.txt")
+        
+        with open(output_file, "w", encoding="utf-8") as f:
+            def log_and_print(msg):
+                print(msg)
+                f.write(msg + "\n")
+
+            log_and_print("\n" + "="*70)
+            log_and_print(" RELATÓRIO DE INFORMAÇÕES GLOBAIS DA BASE (PARA TABELAS LATEX)")
+            log_and_print("="*70)
+            
+            # TABELA 3: Sentimentos
+            log_and_print("\n[TABELA 3] Quantidade Total de Comentários Válidos por Sentimento:")
+            total_comments = sum(self.global_sentiments.values())
+            for k, v in self.global_sentiments.items():
+                pct = (v / total_comments * 100) if total_comments > 0 else 0
+                log_and_print(f"   - {k}: {v:,} ({pct:.2f}%)")
+                
+            # TABELA 2: Cascatas
+            log_and_print("\n[TABELA 2] Limites e Contagem dos Quartis de Negatividade das CASCATAS:")
+            for q in ['Q1', 'Q2', 'Q3', 'Q4']:
+                subset = df_cascades[df_cascades['neg_quartile'] == q]['Perc_Negative']
+                count = len(subset)
+                if count > 0:
+                    log_and_print(f"   - {q}: {count:,} cascatas | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
+
+            # TABELA 1: Usuários
+            log_and_print("\n[TABELA 1] Limites dos Quartis de Negatividade dos USUÁRIOS (Homofilia):")
+            user_data = []
+            for author, counts in self.user_sentiments.items():
+                if counts['total'] > 0:
+                    pct_neg = (counts['negative'] / counts['total']) * 100
+                    user_data.append({'author': author, 'perc_negative': pct_neg})
+            
+            if user_data:
+                df_users = pd.DataFrame(user_data)
+                
+                bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
+                df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+                
+                for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']:
+                    subset = df_users[df_users['user_type'] == q]['perc_negative']
+                    count = len(subset)
+                    if count > 0:
+                        log_and_print(f"   - {q}: {count:,} usuários | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
+
+            log_and_print("="*70 + "\n")
+            
+        # O último print é para garantir que você saiba onde o arquivo foi parar
+        print(f"[*] Relatório completo das Tabelas salvo com sucesso em: {output_file}")
 
     def _prepare_quartiles(self, interactive_only=False):
         df = self.df_cascades.copy()
         
-        # Filtro de Reciprocidade (Ruído de difusão isolado)
         if interactive_only:
             df = df[df['Total_Motifs'] > 0].copy()
             
         neg_col = 'Perc_Negative' if 'Perc_Negative' in df.columns else 'perc_negative'
-        try:
-            df['neg_quartile'] = pd.qcut(df[neg_col], q=4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
-        except ValueError:
-            df['neg_quartile'], bins = pd.qcut(df[neg_col], q=4, retbins=True, duplicates='drop')
-            df['neg_quartile'] = pd.cut(df[neg_col], bins=bins, 
-                                        labels=[f"Q{i+1}" for i in range(len(bins)-1)], 
-                                        include_lowest=True)
+        
+        # CATEGORIZAÇÃO ABSOLUTA: Força a divisão exata de 25% em 25% de negatividade.
+        # Usa pd.cut com limites imutáveis para espelhar a classificação dos usuários (UQ).
+        bins = [-1.0, 25.0, 50.0, 75.0, 100.0]
+        df['neg_quartile'] = pd.cut(df[neg_col], bins=bins, labels=['Q1', 'Q2', 'Q3', 'Q4'])
+        
         return df
 
     def _get_grouping_config(self, grouping, df, interactive_only=False):
@@ -237,20 +334,22 @@ class AnalyticsEngine:
         print(f"[*] Generating Figure 1 Structural CCDFs and Trendlines by {grouping}...")
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
-        
         group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
         metrics = [
-            ('Structural_Virality', 'STRUCTURAL VIRALITY (WIENER)', 'Fig1_CCDF_Structural_Virality.pdf'),
-            ('Max_Depth', 'MAX CASCADE DEPTH', 'Fig1_CCDF_Max_Depth.pdf'),
-            ('Max_Breadth', 'MAX CASCADE BREADTH', 'Fig1_CCDF_Max_Breadth.pdf'),
-            ('Unique_Users', 'UNIQUE PARTICIPATING USERS', 'Fig1_CCDF_Unique_Users.pdf'),
-            ('Cascade_Size', 'TOTAL VOLUME OF MESSAGES', 'Fig1_CCDF_Number_Messages.pdf')
+            ('Structural_Virality', 'STRUCTURAL VIRALITY', 'Fig1_CCDF_Structural_Virality.pdf'),
+            ('Max_Depth', 'MAXIMUM DEPTH', 'Fig1_CCDF_Max_Depth.pdf'),
+            ('Max_Breadth', 'MAXIMUM BREADTH', 'Fig1_CCDF_Max_Breadth.pdf'),
+            ('Cascade_Size', 'SIZE (NUMBER OF MESSAGES)', 'Fig1_CCDF_Number_Messages.pdf'),
+            ('Duration_Hours', 'CASCADE DURATION (HOURS)', 'Fig1_CCDF_Duration_Hours.pdf'),
+            ('Longest_Neg_Run_Ratio', 'LONGEST NEGATIVE RUN / TOTAL NEGATIVE', 'Fig1_CCDF_Longest_Negative_Run.pdf')
         ]
         
         for col, xlabel, filename in metrics:
             if col not in df.columns: continue
             fig, ax = plt.subplots(figsize=(10, 7))
+            
+            global_max_val = df[col].max()
             
             for i, cat in enumerate(groups_list):
                 data = df[df[group_col] == cat][col].dropna().values
@@ -264,43 +363,33 @@ class AnalyticsEngine:
                         linestyle=self.colors['LINESTYLES'][i % len(self.colors['LINESTYLES'])], 
                         linewidth=3.5, label=label_text)
 
-            ax.set_xlabel(xlabel, fontsize=16, fontweight='bold')
-            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
+            ax.set_xlabel(xlabel, fontsize=18, fontweight='bold')
+            ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-            ax.legend(fontsize=12, loc='upper right', framealpha=0.9, edgecolor='black')
-            ax.tick_params(labelsize=14)
+            
+            # Negative block for x axis
+            ax.set_xlim(left=0)
+
+            ax.legend(fontsize=20, loc='upper right', framealpha=0.9, edgecolor='black')
+            ax.tick_params(labelsize=16)
             sns.despine()
             
+            # Formatação Específica dos Eixos X e Tick Máximo
+            current_ticks = list(ax.get_xticks())
+            if col == 'Max_Depth':
+                # Ticks ímpares (inteiros de 2 em 2)
+                custom_ticks = np.arange(1, global_max_val + 2, 2)
+                ax.set_xticks(custom_ticks)
+            else:
+                if global_max_val not in current_ticks:
+                    current_ticks.append(global_max_val)
+                    ax.set_xticks(sorted(list(set(current_ticks))))
+
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
             out_file = os.path.join(output_dir, filename)
             plt.savefig(out_file, dpi=300, bbox_inches='tight')
             plt.close()
-            print(f"  -> Guardado: {filename}")
-
-        trendlines = [
-            ('Max_Depth', 'CASCADE DEPTH', 'Fig1_Trendline_Depth_vs_Time.pdf'),
-            ('Unique_Users', 'UNIQUE PARTICIPATING USERS', 'Fig1_Trendline_Users_vs_Time.pdf')
-        ]
-        
-        df_clean = df[df['Duration_Minutes'] > 0].copy()
-        palette_dict = dict(zip(groups_list, current_colors))
-
-        for x_col, xlabel, filename in trendlines:
-            fig, ax = plt.subplots(figsize=(10, 7))
-            
-            sns.lineplot(data=df_clean, x=x_col, y='Duration_Minutes', hue=group_col,
-                         palette=palette_dict, marker="o", markersize=8, 
-                         linewidth=3.5, estimator='mean', errorbar=None, ax=ax)
-            
-            ax.set_xlabel(xlabel, fontsize=16, fontweight='bold')
-            ax.set_ylabel('AVERAGE DURATION (MINUTES)', fontsize=16, fontweight='bold')
-            ax.tick_params(labelsize=14)
-            ax.legend(title=grouping.upper(), fontsize=12, loc='upper left', framealpha=0.9, edgecolor='black')
-            sns.despine()
-            
-            out_file = os.path.join(output_dir, filename)
-            plt.savefig(out_file, dpi=300, bbox_inches='tight')
-            plt.close()
-            print(f"  -> Guardado: {filename}")
 
     # =========================================================
     # FIGURA 2: MOTIFS HEATMAP
@@ -322,9 +411,10 @@ class AnalyticsEngine:
         labels = np.asarray([[f"{agg_mean.loc[cat, m+'_pct']:.1f}%\n±{agg_se.loc[cat, m+'_pct']:.2f}%" for m in motif_cols] for cat in groups_list])
         
         fig, ax = plt.subplots(figsize=(15, 6))
-        sns.heatmap(agg_mean, annot=labels, fmt="", cmap=self.colors['CMAP'], cbar=True, ax=ax, annot_kws={'size': 11, 'weight': 'bold'})
-        ax.set_ylabel(grouping.upper(), fontsize=14, fontweight='bold')
-        ax.set_xlabel("USER INTERACTION MOTIFS PROPORTION", fontsize=14, fontweight='bold')
+        sns.heatmap(agg_mean, annot=labels, fmt="", cmap=self.colors['CMAP'], cbar=True, ax=ax, annot_kws={'size': 14, 'weight': 'bold'})
+        
+        ax.set_ylabel(grouping.upper(), fontsize=16, fontweight='bold')
+        ax.set_xlabel("USER INTERACTION MOTIFS PROPORTION", fontsize=16, fontweight='bold')
         ax.set_xticklabels(motif_cols)
         ax.set_yticklabels(groups_list, rotation=0)
         
@@ -360,10 +450,10 @@ class AnalyticsEngine:
                     linestyle=self.colors['LINESTYLES'][j % len(self.colors['LINESTYLES'])], 
                     linewidth=3.5, label=label_text)
 
-        ax.set_xlabel('AVERAGE CASCADE SCORE (UPVOTES - DOWNVOTES)', fontsize=16, fontweight='bold')
-        ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=16, fontweight='bold')
+        ax.set_xlabel('AVERAGE CASCADE SCORE (UPVOTES - DOWNVOTES)', fontsize=18, fontweight='bold')
+        ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
         ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-        ax.legend(fontsize=12, loc='upper right', framealpha=0.9, edgecolor='black')
+        ax.legend(fontsize=14, loc='upper right', framealpha=0.9, edgecolor='black')
         ax.tick_params(labelsize=14)
         sns.despine()
         
@@ -373,15 +463,19 @@ class AnalyticsEngine:
         plt.close()
         print(f"   -> Saved: Fig3_CCDF_Average_Score.pdf")
 
-    # =========================================================
-    # OUTRAS ANÁLISES (RQ2, RQ3, Stats, Taxonomy)
-    # =========================================================
     def run_statistical_reports(self, grouping="Categories", interactive_only=False):
-        print(f"[*] Exporting Rigorous Statistical Report PDF by {grouping}...")
+        import itertools
+        self.print_dataset_overview()
+        self.generate_cascade_diagram()
+        self.generate_cascade_diagram()
+        print(f"[*] Exporting Statistical Reports (PDF & TXT) by {grouping}...")
         df = self._prepare_quartiles(interactive_only)
         
         group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
+        # ==========================================
+        # PARTE 1: GERA O PDF COM O RESUMO (Tabela)
+        # ==========================================
         stats_results = []
         metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Unique_Users', 'Cascade_Size', 'Duration_Minutes', 'Average_Score']
         
@@ -419,23 +513,103 @@ class AnalyticsEngine:
                 "Cliff's Delta (First v Last)": "-"
             })
 
-        df_stats = pd.DataFrame(stats_results)
-        fig, ax = plt.subplots(figsize=(14, 4))
-        ax.axis('off')
+        if stats_results:
+            df_stats = pd.DataFrame(stats_results)
+            fig, ax = plt.subplots(figsize=(14, 4))
+            ax.axis('off')
+            
+            table = ax.table(cellText=df_stats.values, colLabels=df_stats.columns, 
+                             cellLoc='center', loc='center', colColours=['#f2f2f2']*len(df_stats.columns))
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1.2, 1.8)
+            
+            plt.title(f"Statistical Validation Report ({grouping})", 
+                      fontsize=14, fontweight='bold', pad=20)
+            
+            out_file = os.path.join(output_dir, "Statistical_Report_Summary.pdf")
+            plt.savefig(out_file, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"   -> Guardado: Statistical_Report_Summary.pdf")
+
+        # ==========================================
+        # PARTE 2: GERA O TXT DETALHADO (Combinatório KS)
+        # ==========================================
+        txt_metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size', 'Duration_Hours', 'Longest_Neg_Run_Ratio', 'Average_Score']
+        txt_file_path = os.path.join(output_dir, "Detailed_Pairwise_Stats.txt")
         
-        table = ax.table(cellText=df_stats.values, colLabels=df_stats.columns, 
-                         cellLoc='center', loc='center', colColours=['#f2f2f2']*len(df_stats.columns))
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.2, 1.8)
+        with open(txt_file_path, "w") as f:
+            for col in txt_metrics:
+                if col not in df.columns: continue
+                f.write(f"\n{'='*40}\nMETRIC: {col}\n{'='*40}\n")
+                
+                groups_dict = {cat: df[df[group_col] == cat][col].dropna().values for cat in groups_list}
+                
+                # Kruskal Geral
+                all_vals = [v for v in groups_dict.values() if len(v) > 0]
+                if len(all_vals) >= 2:
+                    h, p = stats.kruskal(*all_vals)
+                    f.write(f"Global Kruskal-Wallis: H={h:.2f}, p={p:.2e}\n\n")
+                
+                # KS Test Combinatório para todas as duplas (Q1xQ2, Q1xQ3, etc)
+                pairs = list(itertools.combinations(groups_list, 2))
+                for g1, g2 in pairs:
+                    arr1, arr2 = groups_dict[g1], groups_dict[g2]
+                    if len(arr1) > 0 and len(arr2) > 0:
+                        ks_stat, ks_p = stats.ks_2samp(arr1, arr2)
+                        f.write(f"KS Test ({g1} vs {g2}): D={ks_stat:.4f}, p={ks_p:.2e}\n")
+                        
+        print(f"   -> Guardado: Detailed_Pairwise_Stats.txt")
+
+    def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
+        print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
+        Config.set_sns_theme()
+        df = self._prepare_quartiles(interactive_only)
         
-        plt.title(f"Statistical Validation Report ({grouping})", 
-                  fontsize=14, fontweight='bold', pad=20)
+        group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
+        palette_dict = dict(zip(groups_list, current_colors))
         
-        out_file = os.path.join(output_dir, "Statistical_Report_Summary.pdf")
+        sentiments = ['POSITIVE', 'NEUTRAL', 'NEGATIVE']
+        fig, axes = plt.subplots(1, 3, figsize=(24, 7), sharey=True)
+        
+        for i, sentiment in enumerate(sentiments):
+            ax = axes[i]
+            df_sub = df[df['Dominant_Sentiment'] == sentiment]
+            if df_sub.empty: continue
+            
+            sns.scatterplot(data=df_sub, x='Structural_Virality', y='Perc_Negative', hue=group_col, palette=palette_dict,
+                            alpha=0.5, s=30, edgecolor='none', ax=ax, zorder=2, rasterized=True, legend=False)
+            
+            sns.regplot(x=df_sub['Structural_Virality'], y=df_sub['Perc_Negative'], scatter=False, color='black', 
+                        ci=95, line_kws={'linestyle':'-', 'linewidth':3.5, 'zorder': 4}, ax=ax)
+            
+            slope, intercept, r_value, p_value, std_err = linregress(df_sub['Structural_Virality'], df_sub['Perc_Negative'])
+            stats_text = f"Trendline ($R^2={r_value**2:.3f}$)\n$p={p_value:.1e}$"
+            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=16, fontweight='bold',
+                    verticalalignment='top', bbox=dict(facecolor='white', alpha=0.9, edgecolor='black', boxstyle='round,pad=0.5'))
+            
+            ax.set_title(f"{sentiment} DOMINANT CASCADES", fontsize=20, fontweight='bold', color=self.colors['SENTIMENTS'][sentiment], pad=15)
+            ax.set_xlabel('STRUCTURAL VIRALITY', fontsize=18, fontweight='bold')
+            if i == 0: ax.set_ylabel('NEGATIVE SENTIMENT (%)', fontsize=18, fontweight='bold')
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+
+        from matplotlib.lines import Line2D # type: ignore
+        custom_handles = [
+            Line2D([0], [0], marker='o', color='w', markerfacecolor=current_colors[idx], 
+                   markersize=16, label=cat) for idx, cat in enumerate(groups_list)
+        ]
+        
+        axes[1].legend(handles=custom_handles, title=grouping.upper(), loc='upper center', 
+                       bbox_to_anchor=(0.5, -0.15), ncol=len(groups_list), fontsize=16, 
+                       title_fontsize=18, frameon=True, edgecolor='black')
+
+        out_file = os.path.join(output_dir, "RQ3_Taxonomy_Trendlines.pdf")
+        
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.2) 
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Guardado: Statistical_Report_Summary.pdf")
+        print(f"   -> Saved: RQ3_Taxonomy_Trendlines.pdf")
 
     def run_taxonomy_analysis(self, grouping="Categories", interactive_only=False):
         if grouping in ["Quartiles", "Sentiments"]:
@@ -472,21 +646,21 @@ class AnalyticsEngine:
         
         slope, intercept, r_value, p_value, std_err = linregress(sub_stats['Median_Virality'], sub_stats['Global_Toxicity'])
         stats_text = f"Linear Regression\n$R^2 = {r_value**2:.4f}$\n$p = {p_value:.4e}$"
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=14, fontweight='bold',
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=16, fontweight='bold',
                 verticalalignment='top', bbox=dict(facecolor='#f9f9f9', alpha=0.9, edgecolor='black', boxstyle='round,pad=0.5', lw=1.5), zorder=6)
 
         texts = []
         for _, row in sub_stats.iterrows():
             pos_x, pos_y = row['Median_Virality'], row['Global_Toxicity']
             label_text = f"r/{row['Subreddit']}\n({pos_x:.2f}, {pos_y:.1f}%)"
-            texts.append(ax.text(pos_x, pos_y, label_text, fontsize=12, fontweight='bold', zorder=4))
+            texts.append(ax.text(pos_x, pos_y, label_text, fontsize=14, fontweight='bold', zorder=4))
         
         if adjust_text:
             adjust_text(texts, expand_points=(1.5, 1.5), arrowprops=dict(arrowstyle='-', color='gray', lw=0.5, shrinkA=5, shrinkB=5))
 
-        ax.legend(title="CATEGORIES", fontsize=12, loc='lower right', framealpha=0.9, edgecolor='black')
-        ax.set_xlabel('MEDIAN STRUCTURAL VIRALITY', fontsize=16, fontweight='bold')
-        ax.set_ylabel('CONFLICT INDEX (% NEGATIVE)', fontsize=16, fontweight='bold')
+        ax.legend(title="CATEGORIES", fontsize=14, loc='lower right', framealpha=0.9, edgecolor='black')
+        ax.set_xlabel('MEDIAN STRUCTURAL VIRALITY', fontsize=18, fontweight='bold')
+        ax.set_ylabel('CONFLICT INDEX (% NEGATIVE)', fontsize=18, fontweight='bold')
         
         out_file = os.path.join(output_dir, "BCC_Taxonomy_Trendline.pdf")
         plt.tight_layout()
@@ -524,10 +698,10 @@ class AnalyticsEngine:
 
         sns.heatmap(df_normalized, annot=True, fmt=".2f", cmap=self.colors['CMAP'], 
                     cbar_kws={'label': 'Global Concentration (A / Z) %'}, 
-                    linewidths=1, ax=ax, annot_kws={'size': 14, 'weight': 'bold'})
+                    linewidths=1, ax=ax, annot_kws={'size': 16, 'weight': 'bold'})
         
-        ax.set_ylabel("TRIADIC SENTIMENT RELATIONS (T1 → T2 → T3)", fontsize=14, fontweight='bold')
-        ax.set_xlabel("SUBREDDIT CATEGORY", fontsize=14, fontweight='bold')
+        ax.set_ylabel("TRIADIC SENTIMENT RELATIONS (T1 → T2 → T3)", fontsize=16, fontweight='bold')
+        ax.set_xlabel("SUBREDDIT CATEGORY", fontsize=16, fontweight='bold')
         plt.xticks(rotation=0)
         ax.set_yticklabels([f"{t}" for t in Config.ORDERED_TRIADS], rotation=0)
 
@@ -537,8 +711,8 @@ class AnalyticsEngine:
         plt.close()
         print(f"   -> Saved: RQ2_Triadic_Sentiment_Motifs.pdf")
 
-    def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
+
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
         
@@ -561,23 +735,23 @@ class AnalyticsEngine:
             
             slope, intercept, r_value, p_value, std_err = linregress(df_sub['Structural_Virality'], df_sub['Perc_Negative'])
             stats_text = f"Trendline ($R^2={r_value**2:.3f}$)\n$p={p_value:.1e}$"
-            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=14, fontweight='bold',
+            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=16, fontweight='bold',
                     verticalalignment='top', bbox=dict(facecolor='white', alpha=0.9, edgecolor='black', boxstyle='round,pad=0.5'))
             
-            ax.set_title(f"{sentiment} DOMINANT CASCADES", fontsize=18, fontweight='bold', color=self.colors['SENTIMENTS'][sentiment], pad=15)
-            ax.set_xlabel('STRUCTURAL VIRALITY', fontsize=16, fontweight='bold')
-            if i == 0: ax.set_ylabel('TOXICITY (%)', fontsize=16, fontweight='bold')
+            ax.set_title(f"{sentiment} DOMINANT CASCADES", fontsize=20, fontweight='bold', color=self.colors['SENTIMENTS'][sentiment], pad=15)
+            ax.set_xlabel('STRUCTURAL VIRALITY', fontsize=18, fontweight='bold')
+            if i == 0: ax.set_ylabel('NEGATIVE SENTIMENT (%)', fontsize=18, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
 
         from matplotlib.lines import Line2D # type: ignore
         custom_handles = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor=current_colors[idx], 
-                   markersize=14, label=cat) for idx, cat in enumerate(groups_list)
+                   markersize=16, label=cat) for idx, cat in enumerate(groups_list)
         ]
         
         axes[1].legend(handles=custom_handles, title=grouping.upper(), loc='upper center', 
-                       bbox_to_anchor=(0.5, -0.15), ncol=len(groups_list), fontsize=14, 
-                       title_fontsize=16, frameon=True, edgecolor='black')
+                       bbox_to_anchor=(0.5, -0.15), ncol=len(groups_list), fontsize=16, 
+                       title_fontsize=18, frameon=True, edgecolor='black')
 
         out_file = os.path.join(output_dir, "RQ3_Taxonomy_Trendlines.pdf")
         
@@ -586,3 +760,280 @@ class AnalyticsEngine:
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"   -> Saved: RQ3_Taxonomy_Trendlines.pdf")
+
+    def run_user_homophily_analysis(self, grouping="Categories", interactive_only=False):
+        import matplotlib.pyplot as plt # type: ignore
+        import seaborn as sns # type: ignore
+        import pandas as pd
+        from collections import defaultdict
+        import os
+        from Utilities import Config
+        
+        print("[*] Generating User Homophily Analysis (UQ1-UQ4)...")
+        folder_suffix = "_Interactive_Cascades" if interactive_only else ""
+        output_dir = os.path.join(Config.RESULTS_DIR, f"Homophily_Analysis{folder_suffix}")
+        os.makedirs(output_dir, exist_ok=True)
+
+        user_data = []
+        for author, counts in self.user_sentiments.items():
+            if counts['total'] > 0:
+                user_data.append({'author': author, 'perc_negative': (counts['negative'] / counts['total']) * 100})
+                
+        df_users = pd.DataFrame(user_data)
+        bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
+        df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+        user_type_map = dict(zip(df_users['author'], df_users['user_type']))
+
+        # NOVO: Contagem total de usuários por UQ (Para a Legenda)
+        uq_counts = df_users['user_type'].value_counts()
+
+        edge_data, user_homophily_stats = [], defaultdict(lambda: {'s_i': 0, 'd_i': 0, 'type': None})
+        for source, target in self.global_user_edges:
+            s_type, t_type = user_type_map.get(source), user_type_map.get(target)
+            if s_type and t_type:
+                edge_data.append({'Source_Type': s_type, 'Target_Type': t_type})
+                user_homophily_stats[source]['type'] = s_type
+                if s_type == t_type: user_homophily_stats[source]['s_i'] += 1
+                else: user_homophily_stats[source]['d_i'] += 1
+
+        homophily_records = []
+        for author, stats_dict in user_homophily_stats.items():
+            s_i, d_i = stats_dict['s_i'], stats_dict['d_i']
+            if (s_i + d_i) > 0:
+                homophily_records.append({'author': author, 'user_type': stats_dict['type'], 'H_i': s_i / (s_i + d_i)})
+                
+        df_h, df_edges = pd.DataFrame(homophily_records), pd.DataFrame(edge_data)
+        order = ['UQ1', 'UQ2', 'UQ3', 'UQ4']
+
+        # PLOT 1: Barplot
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.yaxis.grid(True, linestyle='--', alpha=0.7, zorder=0)
+        ax.set_axisbelow(True)
+
+        # CORREÇÃO: Cria um dicionário estrito para o Seaborn não embaralhar as cores
+        strict_palette = dict(zip(order, self.colors['COLOR_SCHEME']))
+
+        sns.barplot(data=df_h, x='user_type', y='H_i', hue='user_type', legend=False, 
+                     order=order, errorbar='se', capsize=.1, 
+                     palette=strict_palette, ax=ax, edgecolor='black', linewidth=1.5, zorder=3)
+
+        # Legenda com N, Média e SD
+        import matplotlib.patches as mpatches #type:ignore
+        legend_handles = []
+        for i, q in enumerate(order):
+            mean_val = df_h[df_h['user_type'] == q]['H_i'].mean()
+            std_val = df_h[df_h['user_type'] == q]['H_i'].std()
+            count = uq_counts[q] # Puxa o total de usuários deste quartil
+            
+            color = self.colors['COLOR_SCHEME'][i]
+            # Adiciona o N na string da legenda
+            legend_handles.append(mpatches.Patch(color=color, label=f'{q} (N={count:,}): μ={mean_val:.2f} ± {std_val:.2f}'))
+            
+        ax.legend(handles=legend_handles, loc='upper right', fontsize=11, framealpha=0.9, edgecolor='black')
+        ax.set_xlabel('USER TYPE (TOXICITY QUARTILES)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('HOMOPHILY INDEX ($H_i$)', fontsize=14, fontweight='bold')
+        ax.set_ylim(0, 1)
+        ax.tick_params(labelsize=14)
+        sns.despine()
+        plt.savefig(os.path.join(output_dir, "Homophily_Barplot_SE.pdf"), dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # PLOT 2: Heatmap
+        crosstab = pd.crosstab(df_edges['Source_Type'], df_edges['Target_Type'], normalize='index') * 100
+        crosstab = crosstab.reindex(index=order, columns=order, fill_value=0)
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(crosstab, annot=True, fmt=".1f", cmap=self.colors['CMAP'], 
+                    vmin=0, vmax=100, 
+                    cbar_kws={'orientation': 'horizontal', 'location': 'top', 'label': '% of Replies', 'pad': 0.05}, 
+                    annot_kws={'size': 14, 'weight': 'bold'}, ax=ax)
+        
+        ax.set_xlabel('REPLIED TO (TARGET TYPE)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('REPLIED BY (SOURCE TYPE)', fontsize=14, fontweight='bold')
+        plt.yticks(rotation=0) 
+        ax.tick_params(labelsize=14) 
+        
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=12)
+        cbar.set_label('% of Replies', size=14, weight='bold')
+        
+        plt.savefig(os.path.join(output_dir, "Homophily_Replies_Heatmap.pdf"), dpi=300, bbox_inches='tight')
+        plt.close()
+        print("   -> Saved: Homophily Analyses (Barplot and Heatmap)")
+
+    def generate_cascade_diagram(self, *args, **kwargs):
+        import networkx as nx
+        import matplotlib.pyplot as plt # type: ignore
+        import os
+        from Utilities import Config
+        
+        output_dir = os.path.join(Config.RESULTS_DIR)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        G = nx.DiGraph()
+        # Adicionando os nós (Post = 0, Respostas = 1 a 6)
+        edges = [(0, 1), (0, 2), (1, 3), (1, 4), (2, 5), (4, 6)]
+        G.add_edges_from(edges)
+        
+        # Layout hierárquico
+        pos = {
+            0: (0.5, 1.0),
+            1: (0.3, 0.66), 2: (0.7, 0.66),
+            3: (0.15, 0.33), 4: (0.45, 0.33), 5: (0.7, 0.33),
+            6: (0.45, 0.0)
+        }
+
+        # Aumentei levemente a largura da figura para caber o texto lateral
+        fig, ax = plt.subplots(figsize=(7, 5))
+        
+        # Desenhando as arestas (Replies)
+        nx.draw_networkx_edges(G, pos, arrowstyle='-|>', arrowsize=20, width=2, edge_color='gray', ax=ax)
+        
+        # Cores dos nós para simular Sentimentos/Quartis
+        colors = ['#2c3e50', '#e74c3c', '#3498db', '#e74c3c', '#e74c3c', "#ccbc2e", '#e74c3c']
+        
+        # Índices alinhados de 0 a 6 para dar match com os nós do grafo
+        labels = {0: "Root\nComment", 1: "Reply 1", 2: "Reply 2", 3: "Reply 3", 4: "Reply 4", 5: "Reply 5", 6: "Reply 6"}
+        
+        nx.draw_networkx_nodes(G, pos, node_size=2000, node_color=colors, edgecolors='black', ax=ax)
+        nx.draw_networkx_labels(G, pos, labels=labels, font_size=10, font_color='white', font_weight='bold')
+        
+        # ==========================================
+        # Indicadores de Profundidade (Eixo Y)
+        # ==========================================
+        # CORREÇÃO: Começando do Depth 1
+        depths = {1: 1.0, 2: 0.66, 3: 0.33, 4: 0.0}
+        for depth_level, y_coord in depths.items():
+            # Escreve o texto da profundidade à esquerda
+            ax.text(-0.05, y_coord, f"Depth {depth_level}", 
+                    fontsize=12, fontweight='bold', color='#555555', 
+                    verticalalignment='center', horizontalalignment='right')
+            # Desenha uma linha guia tracejada
+            ax.axhline(y=y_coord, color='gray', linestyle='--', alpha=0.3, xmin=0.15, xmax=0.95)
+            
+        # Ajusta os limites do eixo X para que o texto não fique cortado
+        ax.set_xlim(-0.25, 0.95)
+        
+        plt.axis('off')
+        plt.tight_layout()
+        
+        plt.savefig(os.path.join(output_dir,"Cascade_Graph_Example.pdf"), dpi=300, bbox_inches='tight')
+        plt.close()
+        print("   -> Salvo: Cascade_Graph_Example.pdf")
+    
+    def run_ablation_matrix_analysis(self, *args, **kwargs):
+        import json
+        import os
+        import pandas as pd
+        import matplotlib.pyplot as plt # type: ignore
+        import seaborn as sns # type: ignore
+        from sklearn.metrics import confusion_matrix
+        from Utilities import Config
+
+        print("[*] Running Multimodal vs. Blind Ablation Matrix Analysis...")
+        output_dir = os.path.join(Config.RESULTS_DIR)
+        os.makedirs(output_dir, exist_ok=True)
+
+        blind_path = os.path.join(Config.BLIND_PATH) 
+        multi_path = os.path.join(Config.MULTIMODAL_PATH) 
+
+        def extract_label(data_dict):
+            """Extracts the label from the specific 'ai_analysis' schema."""
+            ai_data = data_dict.get("ai_analysis")
+            if isinstance(ai_data, dict):
+                label = ai_data.get("label")
+                if label:
+                    return label
+                    
+            # Fallback for flat structures
+            for key in ['sentiment', 'label', 'roberta_sentiment', 'qwen_sentiment']:
+                val = data_dict.get(key)
+                if isinstance(val, dict):
+                    return val.get('label', val.get('sentiment', None))
+                if isinstance(val, str):
+                    return val
+            return None
+
+        print("   -> Loading Blind Dataset into memory...")
+        blind_data = {}
+        with open(blind_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    c_id = obj.get('id')
+                    label = extract_label(obj)
+                    if c_id and label:
+                        blind_data[c_id] = label.upper()
+                except Exception:
+                    continue
+                    
+        print("   -> Loading Multimodal Dataset into memory...")
+        multi_data = {}
+        with open(multi_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    c_id = obj.get('id')
+                    label = extract_label(obj)
+                    if c_id and label:
+                        multi_data[c_id] = label.upper()
+                except Exception:
+                    continue
+
+        # Intersect IDs (Fast O(N) lookup)
+        common_ids = set(blind_data.keys()).intersection(set(multi_data.keys()))
+        print(f"[*] Found {len(common_ids):,} intersecting records between both datasets.")
+
+        if not common_ids:
+            print("[!] Error: No matching IDs found between the two datasets. Check your file paths and JSON structure.")
+            return
+
+        y_blind = [blind_data[cid] for cid in common_ids]
+        y_multi = [multi_data[cid] for cid in common_ids]
+        
+        labels_order = ["NEGATIVE", "NEUTRAL", "POSITIVE"]
+        
+        # 1. Confusion Matrix Calculation
+        cm = confusion_matrix(y_multi, y_blind, labels=labels_order)
+        df_cm = pd.DataFrame(cm, index=labels_order, columns=labels_order)
+
+        # 2. Plot Heatmap
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues', cbar=False,
+                    annot_kws={"size": 14, "weight": "bold"}, ax=ax,
+                    linewidths=1, linecolor='black')
+        
+        ax.set_ylabel('Ground Truth (Multimodal Qwen3-VL)', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Predicted (Blind RoBERTa)', fontsize=14, fontweight='bold')
+        ax.tick_params(labelsize=12)
+        plt.title('Ablation Confusion Matrix', fontsize=16, fontweight='bold', pad=20)
+        
+        heatmap_path = os.path.join(output_dir, "Ablation_Confusion_Matrix.pdf")
+        plt.savefig(heatmap_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 3. Export LaTeX Table
+        latex_table = f"""\\begin{{table}}[htbp]
+    \\centering
+    \\caption{{Confusion matrix comparing textual-only (Blind) vs. multimodal inference. The multimodal labels are considered the ground truth for this ablation study.}}
+    \\label{{tab:ablation_confusion_matrix}}
+    \\begin{{tabular}}{{l|ccc}}
+        \\toprule
+        & \\multicolumn{{3}}{{c}}{{\\textbf{{Blind Model Inference}}}} \\\\
+        \\textbf{{Multimodal Ground Truth}} & \\textbf{{Negative}} & \\textbf{{Neutral}} & \\textbf{{Positive}} \\\\
+        \\midrule
+        \\textbf{{Negative}} & {df_cm.loc['NEGATIVE', 'NEGATIVE']:,} & {df_cm.loc['NEGATIVE', 'NEUTRAL']:,} & {df_cm.loc['NEGATIVE', 'POSITIVE']:,} \\\\
+        \\textbf{{Neutral}}  & {df_cm.loc['NEUTRAL', 'NEGATIVE']:,} & {df_cm.loc['NEUTRAL', 'NEUTRAL']:,} & {df_cm.loc['NEUTRAL', 'POSITIVE']:,} \\\\
+        \\textbf{{Positive}} & {df_cm.loc['POSITIVE', 'NEGATIVE']:,} & {df_cm.loc['POSITIVE', 'NEUTRAL']:,} & {df_cm.loc['POSITIVE', 'POSITIVE']:,} \\\\
+        \\bottomrule
+    \\end{{tabular}}
+\\end{{table}}"""
+
+        txt_path = os.path.join(output_dir, "Ablation_Matrix_LaTeX.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(latex_table)
+
+        print(f"   -> Success! PDF and LaTeX table saved in: {output_dir}")
+
+
+

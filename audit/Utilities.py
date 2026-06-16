@@ -4,6 +4,7 @@ import seaborn as sns # type: ignore
 class Config:
     # File Paths
     MULTIMODAL_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
+    BLIND_PATH = "DATA/4-inferred/INFERRED_BLIND_DATASET.jsonl"
     CACHE_PATH = "DATA/4-inferred/cascades_dataframe_cache.parquet"
     RESULTS_DIR = "results/unified_analytics"
     
@@ -47,12 +48,14 @@ class Config:
 
     @staticmethod
     def get_colors():
-        magma_hex = sns.color_palette("magma", 4).as_hex()
+        color = "inferno"
+        cmap = color + "_r"
+        color_scheme = sns.color_palette(color, 4).as_hex()
         return {
-            'CATEGORIES': {cat: color for cat, color in zip(Config.CATEGORIES, magma_hex)},
+            'CATEGORIES': {cat: color for cat, color in zip(Config.CATEGORIES, color_scheme)},
             'SENTIMENTS': {'POSITIVE': '#3B0F70', 'NEUTRAL': '#CA3E72', 'NEGATIVE': '#FECF92'},
-            'COLOR_SCHEME': magma_hex,
-            'CMAP': "magma_r",
+            'COLOR_SCHEME': color_scheme,
+            'CMAP': cmap,
             'LINESTYLES': ['-', '--', '-.', ':']
         }
 
