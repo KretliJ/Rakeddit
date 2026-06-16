@@ -2,6 +2,7 @@
 *.json
 *.jsonl
 results/
+*.rar
 
 # remember kids, don't leak your stuff!!
 config.ini
