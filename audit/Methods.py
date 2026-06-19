@@ -367,25 +367,40 @@ class AnalyticsEngine:
             ax.set_ylabel('CCDF (% OF CASCADES)', fontsize=18, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
             
-            # Negative block for x axis
-            ax.set_xlim(left=0)
-
             ax.legend(fontsize=20, loc='upper right', framealpha=0.9, edgecolor='black')
             ax.tick_params(labelsize=16)
             sns.despine()
             
-            # Formatação Específica dos Eixos X e Tick Máximo
-            current_ticks = list(ax.get_xticks())
-            if col == 'Max_Depth':
-                # Ticks ímpares (inteiros de 2 em 2)
-                custom_ticks = np.arange(1, global_max_val + 2, 2)
-                ax.set_xticks(custom_ticks)
+            # 1. Margem invisível minúscula (2%) apenas para o número final não raspar na borda do PDF
+            ax.set_xlim(left=0, right=global_max_val * 1.02)
+            
+            # 2. Deixa o Matplotlib usar o comportamento padrão dele ("AutoLocator" para números bonitos)
+            # Exceto para os que obrigatoriamente precisam ser inteiros
+            if col == 'Structural_Virality':
+                ax.xaxis.set_major_locator(mtick.MaxNLocator(integer=True))
+            elif col == 'Max_Depth':
+                ax.set_xticks(np.arange(1, global_max_val + 2, 2))
             else:
-                if global_max_val not in current_ticks:
-                    current_ticks.append(global_max_val)
-                    ax.set_xticks(sorted(list(set(current_ticks))))
+                ax.xaxis.set_major_locator(mtick.AutoLocator())
 
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+            # Força a renderização para podermos extrair o que o AutoLocator decidiu fazer
+            fig.canvas.draw()
+            current_ticks = ax.get_xticks()
+
+            # 3. Mantém apenas os números onde a distância para o máximo é segura (maior que 8% do total)
+            safe_distance = global_max_val * 0.08
+            clean_ticks = [t for t in current_ticks if t >= 0 and (global_max_val - t) > safe_distance]
+            
+            # 4. Adiciona o nosso máximo absoluto cravado no final
+            if col in ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size']:
+                clean_ticks.append(int(global_max_val))
+            else:
+                clean_ticks.append(global_max_val)
+                
+            ax.set_xticks(clean_ticks)
+
+            # Roda as legendas em 45 graus para leitura perfeita
+            # plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
             out_file = os.path.join(output_dir, filename)
             plt.savefig(out_file, dpi=300, bbox_inches='tight')
@@ -467,17 +482,17 @@ class AnalyticsEngine:
         import itertools
         self.print_dataset_overview()
         self.generate_cascade_diagram()
-        self.generate_cascade_diagram()
         print(f"[*] Exporting Statistical Reports (PDF & TXT) by {grouping}...")
         df = self._prepare_quartiles(interactive_only)
         
         group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
 
         # ==========================================
-        # PARTE 1: GERA O PDF COM O RESUMO (Tabela)
+        # PARTE 1: COMPUTAÇÃO DOS TESTES INFERENCIAIS
         # ==========================================
         stats_results = []
-        metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Unique_Users', 'Cascade_Size', 'Duration_Minutes', 'Average_Score']
+        # 'Longest_Neg_Run_Ratio' adicionado com sucesso para rodar KW e KS automaticamente!
+        metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Unique_Users', 'Cascade_Size', 'Duration_Minutes', 'Average_Score', 'Longest_Neg_Run_Ratio']
         
         for col in metrics:
             if col not in df.columns: continue
@@ -513,27 +528,54 @@ class AnalyticsEngine:
                 "Cliff's Delta (First v Last)": "-"
             })
 
-        if stats_results:
-            df_stats = pd.DataFrame(stats_results)
-            fig, ax = plt.subplots(figsize=(14, 4))
-            ax.axis('off')
-            
-            table = ax.table(cellText=df_stats.values, colLabels=df_stats.columns, 
-                             cellLoc='center', loc='center', colColours=['#f2f2f2']*len(df_stats.columns))
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1.2, 1.8)
-            
-            plt.title(f"Statistical Validation Report ({grouping})", 
-                      fontsize=14, fontweight='bold', pad=20)
-            
-            out_file = os.path.join(output_dir, "Statistical_Report_Summary.pdf")
-            plt.savefig(out_file, dpi=300, bbox_inches='tight')
-            plt.close()
-            print(f"   -> Guardado: Statistical_Report_Summary.pdf")
+        # ==========================================
+        # PARTE 2: MONTAGEM DO CENSO GLOBAL DO DATASET
+        # ==========================================
+        total_cascades = len(df)
+        total_messages = sum(self.global_sentiments.values())
+        
+        global_summary_data = [
+            ['Total Cascades', f"{total_cascades:,}", '-'],
+            ['Total Valid Messages (No Headers/Footers)', f"{total_messages:,}", '100.00%'],
+            ['   - POSITIVE Sentiment', f"{self.global_sentiments.get('POSITIVE', 0):,}", f"{(self.global_sentiments.get('POSITIVE', 0)/total_messages*100 if total_messages > 0 else 0):.2f}%"],
+            ['   - NEUTRAL Sentiment', f"{self.global_sentiments.get('NEUTRAL', 0):,}", f"{(self.global_sentiments.get('NEUTRAL', 0)/total_messages*100 if total_messages > 0 else 0):.2f}%"],
+            ['   - NEGATIVE Sentiment', f"{self.global_sentiments.get('NEGATIVE', 0):,}", f"{(self.global_sentiments.get('NEGATIVE', 0)/total_messages*100 if total_messages > 0 else 0):.2f}%"]
+        ]
+        df_global = pd.DataFrame(global_summary_data, columns=['Metric / Feature', 'Absolute Volume', 'Proportion (%)'])
 
         # ==========================================
-        # PARTE 2: GERA O TXT DETALHADO (Combinatório KS)
+        # PARTE 3: PLOTAGEM DUPLA NO PDF
+        # ==========================================
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+        ax1.axis('off')
+        ax2.axis('off')
+        
+        # Tabela Superior: Resumo Descritivo Global
+        t1 = ax1.table(cellText=df_global.values, colLabels=df_global.columns,
+                       cellLoc='center', loc='center', colColours=['#e6e6e6']*len(df_global.columns))
+        t1.auto_set_font_size(False)
+        t1.set_fontsize(10)
+        t1.scale(1.0, 1.6)
+        ax1.set_title("Global Dataset Overview Summary (Censo da Base)", fontsize=12, fontweight='bold', pad=15)
+
+        # Tabela Inferior: Validação Estatística H e D
+        if stats_results:
+            df_stats = pd.DataFrame(stats_results)
+            t2 = ax2.table(cellText=df_stats.values, colLabels=df_stats.columns, 
+                           cellLoc='center', loc='center', colColours=['#f2f2f2']*len(df_stats.columns))
+            t2.auto_set_font_size(False)
+            t2.set_fontsize(10)
+            t2.scale(1.0, 1.6)
+            ax2.set_title(f"Statistical Validation Report ({grouping})", fontsize=12, fontweight='bold', pad=15)
+            
+        out_file = os.path.join(output_dir, "Statistical_Report_Summary.pdf")
+        plt.tight_layout()
+        plt.savefig(out_file, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"   -> Guardado com sucesso: Statistical_Report_Summary.pdf")
+
+        # ==========================================
+        # PARTE 4: GERA O TXT DETALHADO COMBINATÓRIO
         # ==========================================
         txt_metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size', 'Duration_Hours', 'Longest_Neg_Run_Ratio', 'Average_Score']
         txt_file_path = os.path.join(output_dir, "Detailed_Pairwise_Stats.txt")
@@ -551,7 +593,7 @@ class AnalyticsEngine:
                     h, p = stats.kruskal(*all_vals)
                     f.write(f"Global Kruskal-Wallis: H={h:.2f}, p={p:.2e}\n\n")
                 
-                # KS Test Combinatório para todas as duplas (Q1xQ2, Q1xQ3, etc)
+                # KS Test Combinatório para todas as duplas de quartis/categorias
                 pairs = list(itertools.combinations(groups_list, 2))
                 for g1, g2 in pairs:
                     arr1, arr2 = groups_dict[g1], groups_dict[g2]
@@ -559,8 +601,8 @@ class AnalyticsEngine:
                         ks_stat, ks_p = stats.ks_2samp(arr1, arr2)
                         f.write(f"KS Test ({g1} vs {g2}): D={ks_stat:.4f}, p={ks_p:.2e}\n")
                         
-        print(f"   -> Guardado: Detailed_Pairwise_Stats.txt")
-
+        print(f"   -> Guardado com sucesso: Detailed_Pairwise_Stats.txt")
+    
     def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
         print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
         Config.set_sns_theme()
@@ -571,6 +613,9 @@ class AnalyticsEngine:
         
         sentiments = ['POSITIVE', 'NEUTRAL', 'NEGATIVE']
         fig, axes = plt.subplots(1, 3, figsize=(24, 7), sharey=True)
+        
+        global_max_virality = df['Structural_Virality'].max()
+        global_max_y = df['Perc_Negative'].max()
         
         for i, sentiment in enumerate(sentiments):
             ax = axes[i]
@@ -590,8 +635,17 @@ class AnalyticsEngine:
             
             ax.set_title(f"{sentiment} DOMINANT CASCADES", fontsize=20, fontweight='bold', color=self.colors['SENTIMENTS'][sentiment], pad=15)
             ax.set_xlabel('STRUCTURAL VIRALITY', fontsize=18, fontweight='bold')
-            if i == 0: ax.set_ylabel('NEGATIVE SENTIMENT (%)', fontsize=18, fontweight='bold')
+            
+            if i == 0: ax.set_ylabel('% SENTIMENT', fontsize=18, fontweight='bold')
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+            
+            ax.set_xlim(left=0, right=global_max_virality * 1.05)
+            ax.set_ylim(bottom=-2, top=max(102, global_max_y * 1.05))
+
+            # ==========================================
+            # 1. AUMENTO DA FONTE DOS TICKS (EIXOS X e Y)
+            # ==========================================
+            ax.tick_params(axis='both', which='major', labelsize=16)
 
         from matplotlib.lines import Line2D # type: ignore
         custom_handles = [
@@ -606,7 +660,13 @@ class AnalyticsEngine:
         out_file = os.path.join(output_dir, "RQ3_Taxonomy_Trendlines.pdf")
         
         plt.tight_layout()
-        plt.subplots_adjust(bottom=0.2) 
+        
+        # ==========================================
+        # 2. APROXIMAÇÃO DOS GRÁFICOS (wspace)
+        # ==========================================
+        # wspace=0.05 reduz drasticamente a margem em branco horizontal entre os 3 painéis
+        plt.subplots_adjust(bottom=0.2, wspace=0.05) 
+        
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"   -> Saved: RQ3_Taxonomy_Trendlines.pdf")
@@ -890,12 +950,12 @@ class AnalyticsEngine:
         nx.draw_networkx_edges(G, pos, arrowstyle='-|>', arrowsize=20, width=2, edge_color='gray', ax=ax)
         
         # Cores dos nós para simular Sentimentos/Quartis
-        colors = ['#2c3e50', '#e74c3c', '#3498db', '#e74c3c', '#e74c3c', "#ccbc2e", '#e74c3c']
+        # colors = ['#2c3e50', '#e74c3c', '#3498db', '#e74c3c', '#e74c3c', "#ccbc2e", '#e74c3c']
         
         # Índices alinhados de 0 a 6 para dar match com os nós do grafo
-        labels = {0: "Root\nComment", 1: "Reply 1", 2: "Reply 2", 3: "Reply 3", 4: "Reply 4", 5: "Reply 5", 6: "Reply 6"}
+        labels = {0: "Root", 1: "Reply 1", 2: "Reply 5", 3: "Reply 2", 4: "Reply 3", 5: "Reply 6", 6: "Reply 4"}
         
-        nx.draw_networkx_nodes(G, pos, node_size=2000, node_color=colors, edgecolors='black', ax=ax)
+        nx.draw_networkx_nodes(G, pos, node_size=2000, node_color='#3498db', edgecolors='black', ax=ax)
         nx.draw_networkx_labels(G, pos, labels=labels, font_size=10, font_color='white', font_weight='bold')
         
         # ==========================================
@@ -1000,13 +1060,12 @@ class AnalyticsEngine:
         # 2. Plot Heatmap
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues', cbar=False,
-                    annot_kws={"size": 14, "weight": "bold"}, ax=ax,
+                    annot_kws={"size": 18, "weight": "bold"}, ax=ax,
                     linewidths=1, linecolor='black')
         
-        ax.set_ylabel('Ground Truth (Multimodal Qwen3-VL)', fontsize=14, fontweight='bold')
-        ax.set_xlabel('Predicted (Blind RoBERTa)', fontsize=14, fontweight='bold')
-        ax.tick_params(labelsize=12)
-        plt.title('Ablation Confusion Matrix', fontsize=16, fontweight='bold', pad=20)
+        ax.set_ylabel('Ground Truth (Qwen3-VL + XLM-R)', fontsize=18, fontweight='bold')
+        ax.set_xlabel('Predicted (Blind XLM-RoBERTa)', fontsize=18, fontweight='bold')
+        ax.tick_params(labelsize=16)
         
         heatmap_path = os.path.join(output_dir, "Ablation_Confusion_Matrix.pdf")
         plt.savefig(heatmap_path, dpi=300, bbox_inches='tight')

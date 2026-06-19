@@ -23,15 +23,16 @@ class AppGUI:
         self.engine = AnalyticsEngine()
         
         self.analysis_tasks = {
-            "1. Structural Analysis (Fig 1)": self.engine.plot_structural_ccdfs,
-            "2. Motifs Analysis (Fig 2)": self.engine.run_motif_analysis,
+            "1. Structural Analysis CCDFs": self.engine.plot_structural_ccdfs,
+            "2. Motifs Analysis": self.engine.run_motif_analysis,
             "3. Average Score (Fig 3)": self.engine.run_figure3_average_score,
-            "4. Triadic Analysis (RQ2)": self.engine.run_triadic_analysis,
-            "5. Taxonomy Analysis (BCC)": self.engine.run_taxonomy_analysis,
-            "6. Virality vs Sentiment (RQ3)": self.engine.run_rq3_analysis,
+            "4. Triadic Analysis": self.engine.run_triadic_analysis,
+            "5. Taxonomy Analysis": self.engine.run_taxonomy_analysis,
+            "6. Taxonomy Trendline Graph": self.engine.run_rq3_analysis,
             "7. Statistical Report": self.engine.run_statistical_reports,
             "8. Homophily Analysis": self.engine.run_user_homophily_analysis,
-            "9. Ablation Blind vs Multimodal": self.engine.run_ablation_matrix_analysis
+            "9. Ablation Blind vs Multimodal": self.engine.run_ablation_matrix_analysis,
+            # "10. Entropy CCDF": self.engine.plot_entropy_ccdf
         }
         
         self.setup_ui()
@@ -68,7 +69,7 @@ class AppGUI:
         # --- 3. Grouping Strategy Dropdown ---
         ttk.Label(left_frame, text="Grouping Strategy:", font=("Helvetica", 10, "italic")).pack(anchor=tk.W, pady=(10, 5))
         self.grouping_var = tk.StringVar()
-        self.grouping_combo = ttk.Combobox(left_frame, textvariable=self.grouping_var, state="disabled", values=["Categories", "Quartiles", "Sentiments"])
+        self.grouping_combo = ttk.Combobox(left_frame, textvariable=self.grouping_var, state="disabled", values=["Quartiles", "Categories", "Sentiments"])
         self.grouping_combo.current(0) 
         self.grouping_combo.pack(fill=tk.X, pady=5)
 
