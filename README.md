@@ -115,34 +115,38 @@ python main.py
 ```
 
 ### [ VERSION HISTORY ]
-* Version 4.2.2
 
+* Version 4.3.0 (Docker & Modular NLP Update)
+  * Introduced `GUI_NLP.py` for modular, GPU-accelerated NLP and Psycholinguistics pipeline execution.
+  * Integrated Docker containerization with automatic state management and dynamic volume mapping.
+  * Resolved Pandas Series typing conflicts and deadlock issues in the BERTopic and WordCloud pipeline.
+  * Isolated LIWC processing for standalone execution, improving inference cache efficiency.
+
+<details>
+<summary>Version History  </summary>
+
+* Version 4.2.2 (Stability)
   * Improved text validation
   * Refactored homophilia method
   * Refactored reports
 * Version 4.2.0 (NLP Engine Update)
-
   * BERTopic and wordcloud analysis integration
 * Version 4.1.0 (Unified Analysis Update)
-
   * Unified legacy analytic pipelines into an optimized MVC model (GUI.py, Methods.py, Utilities.py).
   * Implemented structured multi-folder routing based on user-selected grouping strategies.
   * Engineered multi-threaded "Run All" pipeline runner to optimize bulk processing loops.
   * Standardized file outputs to PDF
-* version 3.1.0 (Analysis Update)
-
+* Version 3.1.0 (Analysis Update)
   * Final analytics pipeline build
   * Replaced CSVs with RAM DataFrames
   * Direct export to PNG & PDF
   * Improved resume state to main pipeline in main.py
-* version 2.2.0 (Thesis Milestone Update)
-
+* Version 2.2.0 (Thesis Milestone Update)
   * Analytics GUI automatic categories (4 sociologic types)
   * Infer engine with batching and resume inteligente
   * GNN GraphSAGE with structural features (degree, time, depth)
   * Interactive orchestrator menu (6 operation modes)
-* version 2.0.0 (Graph Structure & Telemetry Update)
-
+* Version 2.0.0 (Graph Structure & Telemetry Update)
   * Objective changes made on main project pipeline
   * Introduced native depth tracking and post_header anchoring (depth: 0) for advanced cascade analysis.
   * Preserved graph integrity by sanitizing [AutoModerator] and [deleted] nodes while maintaining their parent_id links.
@@ -150,26 +154,26 @@ python main.py
   * Added metadata_footer for exact Unix-to-Human temporal windows at the EOF of datasets.
   * Added automated Markdown telemetry generation during database building.
   * Created analytics.py for calculating and plotting Average Breadth and Max Depth structural signatures.
-* version 1.3.0 (Cascade Architecture & OOP Refactoring)
-
+* Version 1.3.0 (Cascade Architecture & OOP Refactoring)
   * Implemented Model Routing (BERT to Llama-3) to optimize VRAM and inference time.
   * Refactored main.py into an Object-Oriented pipeline.
   * Integrated native Python logging for robust error tracking and monitoring.
   * Separated POST CONTEXT from CONVERSATION HISTORY in LLM prompts to fix orphan comment hallucinations.
-* version 1.2.1 (model adjustment)
-
+* Version 1.2.1 (model adjustment)
   * Testing how local inference works around toxicity detection
   * Migrate from llama-3 8B Q4_0 to Q8_0
   * Added a script to extract hallucinated rows
-* version: 1.2.0 (Multimodal Update)
-
+* Version: 1.2.0 (Multimodal Update)
   * off-grid local AI inference (Ollama integration).
   * Media interceptor & visual context enrichment for images/GIFs.
   * Context-aware DFS dynamic prompt orchestration.
-* version: 1.1.0
-
+* Version: 1.1.0
   * Tidy Data format
   * DFS processing of raw json endpoint responses
+
+</details>
+
+
 
 ### [ DISCLAIMER ]
 

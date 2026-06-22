@@ -11,6 +11,7 @@ jsonlines>=4.0.0
 # Machine Learning & Cascade Filtering
 torch>=2.0.0
 transformers>=4.30.0
+sentence-transformers
 
 # Analytics
 scikit-learn>=1.8.0
