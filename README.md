@@ -179,8 +179,6 @@ python main.py
 
 Rakeddit and related modules are provided "as is" for educational, scientific research, and result reproduction purposes only.
 
-- The authors and developer assume zero liability for platform rate-limit compliance infractions.
-- Users are responsible for complying with Reddit's ToS and
-  applicable data protection laws (GDPR, LGPD, CCPA, etc.).
-- "Rakeddit" is a name. Not legal advice.
-  - Because calling it a scraper isn't particularly truthful.
+* **Platform Compliance:** The authors and developer assume zero liability for platform rate-limit compliance infractions occurring from the usage of this artifact.
+* **Legal Responsibility:** Users are strictly responsible for ensuring their usage complies with Reddit's Terms of Service and all applicable data protection laws, including but not limited to the GDPR (EU), LGPD (Brazil), and CCPA (California).
+
