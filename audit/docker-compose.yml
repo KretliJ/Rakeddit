@@ -1,0 +1,16 @@
+services:
+  nlp-engine:
+    build: .
+    container_name: rakeddit_gpu_container
+    volumes:
+      - ..:/app
+    working_dir: /app/audit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # MUDANÇA AQUI: Mantém o contêiner vivo indefinidamente esperando comandos da nossa GUI
+    command: tail -f /dev/null

@@ -1,0 +1,20 @@
+# ==========================================
+# NLP & Psycholinguistics Dependencies
+# ==========================================
+
+# Core NLP Models
+bertopic==0.16.0
+sentence-transformers
+
+# Psycholinguistics & Stopwords
+liwc
+stopwordsiso
+
+# Visualization
+matplotlib
+seaborn
+wordcloud
+
+# Stats & ML Utilities (Garantia de versão)
+scikit-learn
+scipy

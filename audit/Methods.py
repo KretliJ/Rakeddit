@@ -35,33 +35,39 @@ class AnalyticsEngine:
         homophily_cache_path = Config.CACHE_PATH.replace('.parquet', '_homophily.json')
         
         if os.path.exists(Config.CACHE_PATH) and os.path.exists(triads_cache_path) and os.path.exists(homophily_cache_path):
-            print(f"[*] Cache encontrado. A carregar DataFrame de {Config.CACHE_PATH}...")
+            print(f"[INFO] ℹ️ Cache found. Loading from {Config.CACHE_PATH}...")
             self.df_cascades = pd.read_parquet(Config.CACHE_PATH)
             
             with open(triads_cache_path, 'r', encoding='utf-8') as f:
                 self.triad_counts = json.load(f)
                 
-            # Carrega os dados de homofilia do cache
+            # Load homophily data from cache
             with open(homophily_cache_path, 'r', encoding='utf-8') as f:
                 homophily_data = json.load(f)
                 self.global_sentiments = homophily_data.get('global_sentiments', {})
                 self.user_sentiments = defaultdict(lambda: {'total': 0, 'negative': 0}, homophily_data.get('user_sentiments', {}))
-                # Converte listas de volta para tuplas para o processamento de arestas
+                # Converts lists back to rows for edge processing
                 self.global_user_edges = [tuple(x) for x in homophily_data.get('global_user_edges', [])]
                 
-            print("   -> DataFrame, Tríades e Homofilia carregados instantaneamente para a RAM.")
+            print("[INFO] ✅ DataFrame, Triads and Homophily loaded into RAM.")
             return True
         else:
-            print("[*] Cache não encontrado ou desatualizado. A iniciar extração profunda dos grafos...")
+            print("[WARN] ⚠️ Cache not found. Consolidating...")
             sucesso = self.extract_and_compute_all()
             
             if sucesso and self.df_cascades is not None and not self.df_cascades.empty:
+                # --- Guarantees docked folders exist -------------------------
+                cache_dir = os.path.dirname(Config.CACHE_PATH)
+                if cache_dir and not os.path.exists(cache_dir):
+                    print(f"[WARN] ⚠️ Creating cache folder: {cache_dir}")
+                    os.makedirs(cache_dir, exist_ok=True)
+                # -------------------------------------------------------------
+                
                 self.df_cascades.to_parquet(Config.CACHE_PATH, index=False)
                 
                 with open(triads_cache_path, 'w', encoding='utf-8') as f:
                     json.dump(self.triad_counts, f)
                     
-                # Guarda os novos dados globais num cache separado
                 with open(homophily_cache_path, 'w', encoding='utf-8') as f:
                     json.dump({
                         'global_sentiments': self.global_sentiments,
@@ -69,18 +75,21 @@ class AnalyticsEngine:
                         'global_user_edges': self.global_user_edges
                     }, f)
                     
-                print(f"   -> Cache guardado com sucesso (Parquet + JSONs).")
+                print(f"[INFO] ✅ Cache consolidated (Parquet + JSONs).")
             return sucesso
 
     def extract_and_compute_all(self):
-        print("[*] Initiating Single-Pass Extraction (Unified Orchestrator)...")
+        print("[INFO] ℹ️ Initiating Single-Pass Extraction (Unified Orchestrator)...")
         
-        # NOVOS RASTREADORES GLOBAIS
         self.global_sentiments = {'POSITIVE': 0, 'NEUTRAL': 0, 'NEGATIVE': 0}
         self.user_sentiments = defaultdict(lambda: {'total': 0, 'negative': 0})
         self.global_user_edges = [] # Para a rede de homofilia (source, target)
 
-        with open(Config.MULTIMODAL_PATH, 'r', encoding='utf-8') as f:
+        abs_path = os.path.join('/app', Config.MULTIMODAL_PATH)
+        
+        print(f"[INFO] ℹ️ Opening: {abs_path}")
+        
+        with open(abs_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     record = json.loads(line)
@@ -106,11 +115,11 @@ class AnalyticsEngine:
                         'metadata_score': score
                     }
                     
-                    # Rastreio Global de Sentimentos da Base
+                    # Global sentiment tracker
                     if label in Config.VALID_SENTIMENTS:
                         self.global_sentiments[label] += 1
-                        # FILTRO MÍNIMO: Remove apenas o vácuo dos deletados e a moderação automatizada do Reddit
-                        # Bots informativos (como robôs de dicionário ou links) passam livremente e são contabilizados
+                        # Minimal filter: Remove only deleted and automod
+                        # Info bots are counted
                         if author not in ['[deleted]', 'deleted', 'automoderator', 'redditcaresresources']:
                             self.user_sentiments[author]['total'] += 1
                             if label == 'NEGATIVE':
@@ -139,7 +148,7 @@ class AnalyticsEngine:
                 sentiments = {'POSITIVE': 0, 'NEUTRAL': 0, 'NEGATIVE': 0}
                 total_valid = 0
                 
-                # Para o longest_negative_run
+                # longest_negative_run
                 node_labels = {}
                 
                 while queue:
@@ -167,7 +176,7 @@ class AnalyticsEngine:
                         parent_author = self.node_memory.get(actual_parent, {}).get('author', '[deleted]')
                         
                         if author not in ['[deleted]', 'deleted'] and parent_author not in ['[deleted]', 'deleted']:
-                            self.global_user_edges.append((author, parent_author)) # Salva para homofilia
+                            self.global_user_edges.append((author, parent_author))
                             if author != parent_author:
                                 G_users.add_edge(author, parent_author)
                     
@@ -177,7 +186,7 @@ class AnalyticsEngine:
                 num_nodes = G_struct.number_of_nodes()
                 if num_nodes < 3 or total_valid == 0: continue
                 
-                # DP Simples para achar o longest_negative_run
+                # DP to find longest_negative_run
                 dp_neg = {}
                 try:
                     for n in nx.topological_sort(G_struct):
@@ -235,11 +244,11 @@ class AnalyticsEngine:
                 })
 
         self.df_cascades = pd.DataFrame(cascades_data)
-        print(f"   -> Phase 3 Complete. {len(self.df_cascades)} cascades loaded.")
+        print(f"[INFO] ✅ Phase 3 Complete. {len(self.df_cascades)} cascades loaded.")
         return True
 
     def print_dataset_overview(self):
-        """Gera os dados brutos solicitados para as Tabelas 1, 2 e 3 do TCC e salva num arquivo TXT."""
+        """Generates raw data for tables and saves on txt."""
         import os
         import pandas as pd
         from Utilities import Config
@@ -253,26 +262,26 @@ class AnalyticsEngine:
                 f.write(msg + "\n")
 
             log_and_print("\n" + "="*70)
-            log_and_print(" RELATÓRIO DE INFORMAÇÕES GLOBAIS DA BASE (PARA TABELAS LATEX)")
+            log_and_print("[INFO] ℹ️ GLOBAL BASE REPORT")
             log_and_print("="*70)
             
-            # TABELA 3: Sentimentos
-            log_and_print("\n[TABELA 3] Quantidade Total de Comentários Válidos por Sentimento:")
+            # TABLE 3: Sentiments
+            log_and_print("\n[INFO] ℹ️ [TABLE 3] Total valid comments per sentiment:")
             total_comments = sum(self.global_sentiments.values())
             for k, v in self.global_sentiments.items():
                 pct = (v / total_comments * 100) if total_comments > 0 else 0
                 log_and_print(f"   - {k}: {v:,} ({pct:.2f}%)")
                 
-            # TABELA 2: Cascatas
-            log_and_print("\n[TABELA 2] Limites e Contagem dos Quartis de Negatividade das CASCATAS:")
+            # TABLE 2: Cascades
+            log_and_print("\n[INFO] ℹ️ [TABLE 2] Cascade negativity quartile boudnaries:")
             for q in ['Q1', 'Q2', 'Q3', 'Q4']:
                 subset = df_cascades[df_cascades['neg_quartile'] == q]['Perc_Negative']
                 count = len(subset)
                 if count > 0:
                     log_and_print(f"   - {q}: {count:,} cascatas | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
 
-            # TABELA 1: Usuários
-            log_and_print("\n[TABELA 1] Limites dos Quartis de Negatividade dos USUÁRIOS (Homofilia):")
+            # TABLE 1: Users
+            log_and_print("\n[INFO] ℹ️ [TABLE 1] Users negativity quartile boundaries (homophily):")
             user_data = []
             for author, counts in self.user_sentiments.items():
                 if counts['total'] > 0:
@@ -289,12 +298,12 @@ class AnalyticsEngine:
                     subset = df_users[df_users['user_type'] == q]['perc_negative']
                     count = len(subset)
                     if count > 0:
-                        log_and_print(f"   - {q}: {count:,} usuários | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
+                        log_and_print(f"[INFO] ℹ️ - {q}: {count:,} users | Start: {subset.min():.2f}% -> End: {subset.max():.2f}%")
 
             log_and_print("="*70 + "\n")
             
         # O último print é para garantir que você saiba onde o arquivo foi parar
-        print(f"[*] Relatório completo das Tabelas salvo com sucesso em: {output_file}")
+        print(f"[INFO] ✅ Full tables report saved in: {output_file}")
 
     def _prepare_quartiles(self, interactive_only=False):
         df = self.df_cascades.copy()
@@ -331,7 +340,7 @@ class AnalyticsEngine:
     # FIGURA 1: TRENDLINES E CCDFs ESTRUTURAIS
     # =========================================================
     def plot_structural_ccdfs(self, grouping="Categories", interactive_only=False):
-        print(f"[*] Generating Figure 1 Structural CCDFs and Trendlines by {grouping}...")
+        print(f"[INFO] ℹ️ Generating Figure 1 Structural CCDFs and Trendlines by {grouping}...")
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
         group_col, groups_list, current_colors, output_dir = self._get_grouping_config(grouping, df, interactive_only)
@@ -370,12 +379,9 @@ class AnalyticsEngine:
             ax.legend(fontsize=20, loc='upper right', framealpha=0.9, edgecolor='black')
             ax.tick_params(labelsize=16)
             sns.despine()
-            
-            # 1. Margem invisível minúscula (2%) apenas para o número final não raspar na borda do PDF
+        
             ax.set_xlim(left=0, right=global_max_val * 1.02)
             
-            # 2. Deixa o Matplotlib usar o comportamento padrão dele ("AutoLocator" para números bonitos)
-            # Exceto para os que obrigatoriamente precisam ser inteiros
             if col == 'Structural_Virality':
                 ax.xaxis.set_major_locator(mtick.MaxNLocator(integer=True))
             elif col == 'Max_Depth':
@@ -383,24 +389,18 @@ class AnalyticsEngine:
             else:
                 ax.xaxis.set_major_locator(mtick.AutoLocator())
 
-            # Força a renderização para podermos extrair o que o AutoLocator decidiu fazer
             fig.canvas.draw()
             current_ticks = ax.get_xticks()
 
-            # 3. Mantém apenas os números onde a distância para o máximo é segura (maior que 8% do total)
             safe_distance = global_max_val * 0.08
             clean_ticks = [t for t in current_ticks if t >= 0 and (global_max_val - t) > safe_distance]
             
-            # 4. Adiciona o nosso máximo absoluto cravado no final
             if col in ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size']:
                 clean_ticks.append(int(global_max_val))
             else:
                 clean_ticks.append(global_max_val)
                 
             ax.set_xticks(clean_ticks)
-
-            # Roda as legendas em 45 graus para leitura perfeita
-            # plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
             out_file = os.path.join(output_dir, filename)
             plt.savefig(out_file, dpi=300, bbox_inches='tight')
@@ -410,7 +410,7 @@ class AnalyticsEngine:
     # FIGURA 2: MOTIFS HEATMAP
     # =========================================================
     def run_motif_analysis(self, grouping="Categories", interactive_only=False):
-        print(f"[*] Generating Figure 2 Motifs Heatmap + Kruskal-Wallis Tests by {grouping}...")
+        print(f"[INFO] ℹ️ Generating Figure 2 Motifs Heatmap + Kruskal-Wallis Tests by {grouping}...")
         df = self._prepare_quartiles(interactive_only)
         df = df[df['Total_Motifs'] > 0].copy()
         
@@ -437,13 +437,13 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300)
         plt.close()
-        print(f"   -> Saved: Fig2_Motifs_Ecosystem_Heatmap.pdf")
+        print(f"[INFO] ✅ Saved: Fig2_Motifs_Ecosystem_Heatmap.pdf")
 
     # =========================================================
     # FIGURA 3: AVERAGE SCORE CCDF
     # =========================================================
     def run_figure3_average_score(self, grouping="Categories", interactive_only=False):
-        print(f"[*] Generating Figure 3 Average Score CCDF by {grouping}...")
+        print(f"[INFO] ℹ️  Generating Figure 3 Average Score CCDF by {grouping}...")
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
         
@@ -476,22 +476,17 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Saved: Fig3_CCDF_Average_Score.pdf")
+        print(f"[INFO] ✅ Saved: Fig3_CCDF_Average_Score.pdf")
 
     def run_statistical_reports(self, grouping="Categories", interactive_only=False):
         import itertools
         self.print_dataset_overview()
         self.generate_cascade_diagram()
-        print(f"[*] Exporting Statistical Reports (PDF & TXT) by {grouping}...")
+        print(f"[INFO] ℹ️ Exporting Statistical Reports (PDF & TXT) by {grouping}...")
         df = self._prepare_quartiles(interactive_only)
         
         group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
-
-        # ==========================================
-        # PARTE 1: COMPUTAÇÃO DOS TESTES INFERENCIAIS
-        # ==========================================
         stats_results = []
-        # 'Longest_Neg_Run_Ratio' adicionado com sucesso para rodar KW e KS automaticamente!
         metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Unique_Users', 'Cascade_Size', 'Duration_Minutes', 'Average_Score', 'Longest_Neg_Run_Ratio']
         
         for col in metrics:
@@ -529,8 +524,7 @@ class AnalyticsEngine:
             })
 
         # ==========================================
-        # PARTE 2: MONTAGEM DO CENSO GLOBAL DO DATASET
-        # ==========================================
+
         total_cascades = len(df)
         total_messages = sum(self.global_sentiments.values())
         
@@ -544,8 +538,7 @@ class AnalyticsEngine:
         df_global = pd.DataFrame(global_summary_data, columns=['Metric / Feature', 'Absolute Volume', 'Proportion (%)'])
 
         # ==========================================
-        # PARTE 3: PLOTAGEM DUPLA NO PDF
-        # ==========================================
+        
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
         ax1.axis('off')
         ax2.axis('off')
@@ -556,7 +549,7 @@ class AnalyticsEngine:
         t1.auto_set_font_size(False)
         t1.set_fontsize(10)
         t1.scale(1.0, 1.6)
-        ax1.set_title("Global Dataset Overview Summary (Censo da Base)", fontsize=12, fontweight='bold', pad=15)
+        ax1.set_title("Global Dataset Overview Summary (Base census)", fontsize=12, fontweight='bold', pad=15)
 
         # Tabela Inferior: Validação Estatística H e D
         if stats_results:
@@ -572,11 +565,10 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Guardado com sucesso: Statistical_Report_Summary.pdf")
+        print(f"[INFO] ✅ Guardado com sucesso: Statistical_Report_Summary.pdf")
 
         # ==========================================
-        # PARTE 4: GERA O TXT DETALHADO COMBINATÓRIO
-        # ==========================================
+        
         txt_metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size', 'Duration_Hours', 'Longest_Neg_Run_Ratio', 'Average_Score']
         txt_file_path = os.path.join(output_dir, "Detailed_Pairwise_Stats.txt")
         
@@ -601,10 +593,10 @@ class AnalyticsEngine:
                         ks_stat, ks_p = stats.ks_2samp(arr1, arr2)
                         f.write(f"KS Test ({g1} vs {g2}): D={ks_stat:.4f}, p={ks_p:.2e}\n")
                         
-        print(f"   -> Guardado com sucesso: Detailed_Pairwise_Stats.txt")
+        print(f"[INFO] ✅ Guardado com sucesso: Detailed_Pairwise_Stats.txt")
     
     def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
-        print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
+        print(f"[INFO] ℹ️ Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
         
@@ -642,9 +634,6 @@ class AnalyticsEngine:
             ax.set_xlim(left=0, right=global_max_virality * 1.05)
             ax.set_ylim(bottom=-2, top=max(102, global_max_y * 1.05))
 
-            # ==========================================
-            # 1. AUMENTO DA FONTE DOS TICKS (EIXOS X e Y)
-            # ==========================================
             ax.tick_params(axis='both', which='major', labelsize=16)
 
         from matplotlib.lines import Line2D # type: ignore
@@ -662,24 +651,20 @@ class AnalyticsEngine:
         plt.tight_layout()
         
         # ==========================================
-        # 2. APROXIMAÇÃO DOS GRÁFICOS (wspace)
-        # ==========================================
-        # wspace=0.05 reduz drasticamente a margem em branco horizontal entre os 3 painéis
         plt.subplots_adjust(bottom=0.2, wspace=0.05) 
         
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Saved: RQ3_Taxonomy_Trendlines.pdf")
+        print(f"[INFO] ✅ Saved: RQ3_Taxonomy_Trendlines.pdf")
 
     def run_taxonomy_analysis(self, grouping="Categories", interactive_only=False):
         if grouping in ["Quartiles", "Sentiments"]:
-            print(f"  [!] Aviso: Taxonomy Analysis agrega Subreddits e é baseada estritamente em Categorias. A forçar 'Categories'...")
+            print(f"[INFO] ℹ️ Taxonomy Analysis aggregates subreddits and is based strictly on categories.")
             grouping = "Categories"
 
-        print("[*] Generating BCC Taxonomy Trendline Plot...")
+        print("[INFO] ℹ️ Generating BCC Taxonomy Trendline Plot...")
         Config.set_sns_theme()
         
-        # O filtro interactive_only aqui precisa ser passado manual se formos criar a pasta certa
         df = self.df_cascades.copy()
         if interactive_only:
             df = df[df['Total_Motifs'] > 0].copy()
@@ -726,14 +711,14 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Saved: BCC_Taxonomy_Trendline.pdf")
+        print(f"[INFO] ✅ Saved: BCC_Taxonomy_Trendline.pdf")
 
     def run_triadic_analysis(self, grouping="Categories", interactive_only=False):
         if grouping in ["Quartiles", "Sentiments"]:
-            print(f"  [!] Aviso: Triadic Analysis é extraída estruturalmente por Categorias no Parser. A forçar 'Categories'...")
+            print(f"[INFO] ℹ️ Triadic Analysis is extracted from categories by Parser")
             grouping = "Categories"
 
-        print("[*] Generating Normalized Triadic Heatmap (RQ2)...")
+        print("[INFO] ℹ️ Generating Normalized Triadic Heatmap (RQ2)...")
         
         # Interactive Only tem pouco impacto aqui já que a tríade por definição exige interação (avo->pai->filho)
         # Mas atualizamos a pasta
@@ -748,7 +733,7 @@ class AnalyticsEngine:
         Z = df_counts.to_numpy().sum()
         
         if Z == 0:
-            print("  [-] Aviso: A soma de todas as tríades é zero. O Heatmap foi ignorado.")
+            print("[WARN] ⚠️ Sum of all triads was zero. Ignoring Heatmap.")
             return
 
         df_normalized = (df_counts / Z) * 100
@@ -769,9 +754,9 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300)
         plt.close()
-        print(f"   -> Saved: RQ2_Triadic_Sentiment_Motifs.pdf")
+        print(f"[INFO] ✅ Saved: RQ2_Triadic_Sentiment_Motifs.pdf")
 
-        print(f"[*] Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
+        print(f"[INFO] ℹ️ Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
 
         Config.set_sns_theme()
         df = self._prepare_quartiles(interactive_only)
@@ -819,7 +804,7 @@ class AnalyticsEngine:
         plt.subplots_adjust(bottom=0.2) 
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"   -> Saved: RQ3_Taxonomy_Trendlines.pdf")
+        print(f"[INFO] ✅ Saved: RQ3_Taxonomy_Trendlines.pdf")
 
     def run_user_homophily_analysis(self, grouping="Categories", interactive_only=False):
         import matplotlib.pyplot as plt # type: ignore
@@ -829,7 +814,7 @@ class AnalyticsEngine:
         import os
         from Utilities import Config
         
-        print("[*] Generating User Homophily Analysis (UQ1-UQ4)...")
+        print("[INFO] ℹ️ Generating User Homophily Analysis (UQ1-UQ4)...")
         folder_suffix = "_Interactive_Cascades" if interactive_only else ""
         output_dir = os.path.join(Config.RESULTS_DIR, f"Homophily_Analysis{folder_suffix}")
         os.makedirs(output_dir, exist_ok=True)
@@ -870,14 +855,12 @@ class AnalyticsEngine:
         ax.yaxis.grid(True, linestyle='--', alpha=0.7, zorder=0)
         ax.set_axisbelow(True)
 
-        # CORREÇÃO: Cria um dicionário estrito para o Seaborn não embaralhar as cores
         strict_palette = dict(zip(order, self.colors['COLOR_SCHEME']))
 
         sns.barplot(data=df_h, x='user_type', y='H_i', hue='user_type', legend=False, 
                      order=order, errorbar='se', capsize=.1, 
                      palette=strict_palette, ax=ax, edgecolor='black', linewidth=1.5, zorder=3)
 
-        # Legenda com N, Média e SD
         import matplotlib.patches as mpatches #type:ignore
         legend_handles = []
         for i, q in enumerate(order):
@@ -886,7 +869,6 @@ class AnalyticsEngine:
             count = uq_counts[q] # Puxa o total de usuários deste quartil
             
             color = self.colors['COLOR_SCHEME'][i]
-            # Adiciona o N na string da legenda
             legend_handles.append(mpatches.Patch(color=color, label=f'{q} (N={count:,}): μ={mean_val:.2f} ± {std_val:.2f}'))
             
         ax.legend(handles=legend_handles, loc='upper right', fontsize=11, framealpha=0.9, edgecolor='black')
@@ -919,7 +901,7 @@ class AnalyticsEngine:
         
         plt.savefig(os.path.join(output_dir, "Homophily_Replies_Heatmap.pdf"), dpi=300, bbox_inches='tight')
         plt.close()
-        print("   -> Saved: Homophily Analyses (Barplot and Heatmap)")
+        print("[INFO] ✅ Saved: Homophily Analyses (Barplot and Heatmap)")
 
     def generate_cascade_diagram(self, *args, **kwargs):
         import networkx as nx
@@ -931,11 +913,10 @@ class AnalyticsEngine:
         os.makedirs(output_dir, exist_ok=True)
         
         G = nx.DiGraph()
-        # Adicionando os nós (Post = 0, Respostas = 1 a 6)
+    
         edges = [(0, 1), (0, 2), (1, 3), (1, 4), (2, 5), (4, 6)]
         G.add_edges_from(edges)
         
-        # Layout hierárquico
         pos = {
             0: (0.5, 1.0),
             1: (0.3, 0.66), 2: (0.7, 0.66),
@@ -943,35 +924,24 @@ class AnalyticsEngine:
             6: (0.45, 0.0)
         }
 
-        # Aumentei levemente a largura da figura para caber o texto lateral
         fig, ax = plt.subplots(figsize=(7, 5))
         
-        # Desenhando as arestas (Replies)
         nx.draw_networkx_edges(G, pos, arrowstyle='-|>', arrowsize=20, width=2, edge_color='gray', ax=ax)
         
-        # Cores dos nós para simular Sentimentos/Quartis
-        # colors = ['#2c3e50', '#e74c3c', '#3498db', '#e74c3c', '#e74c3c', "#ccbc2e", '#e74c3c']
-        
-        # Índices alinhados de 0 a 6 para dar match com os nós do grafo
         labels = {0: "Root", 1: "Reply 1", 2: "Reply 5", 3: "Reply 2", 4: "Reply 3", 5: "Reply 6", 6: "Reply 4"}
         
         nx.draw_networkx_nodes(G, pos, node_size=2000, node_color='#3498db', edgecolors='black', ax=ax)
         nx.draw_networkx_labels(G, pos, labels=labels, font_size=10, font_color='white', font_weight='bold')
-        
-        # ==========================================
-        # Indicadores de Profundidade (Eixo Y)
-        # ==========================================
-        # CORREÇÃO: Começando do Depth 1
+
         depths = {1: 1.0, 2: 0.66, 3: 0.33, 4: 0.0}
         for depth_level, y_coord in depths.items():
-            # Escreve o texto da profundidade à esquerda
+            
             ax.text(-0.05, y_coord, f"Depth {depth_level}", 
                     fontsize=12, fontweight='bold', color='#555555', 
                     verticalalignment='center', horizontalalignment='right')
-            # Desenha uma linha guia tracejada
+
             ax.axhline(y=y_coord, color='gray', linestyle='--', alpha=0.3, xmin=0.15, xmax=0.95)
-            
-        # Ajusta os limites do eixo X para que o texto não fique cortado
+
         ax.set_xlim(-0.25, 0.95)
         
         plt.axis('off')
@@ -979,7 +949,7 @@ class AnalyticsEngine:
         
         plt.savefig(os.path.join(output_dir,"Cascade_Graph_Example.pdf"), dpi=300, bbox_inches='tight')
         plt.close()
-        print("   -> Salvo: Cascade_Graph_Example.pdf")
+        print("[INFO] ℹ️ Saved: Cascade_Graph_Example.pdf")
     
     def run_ablation_matrix_analysis(self, *args, **kwargs):
         import json
@@ -990,7 +960,7 @@ class AnalyticsEngine:
         from sklearn.metrics import confusion_matrix
         from Utilities import Config
 
-        print("[*] Running Multimodal vs. Blind Ablation Matrix Analysis...")
+        print("[INFO] ℹ️ Running Multimodal vs. Blind Ablation Matrix Analysis...")
         output_dir = os.path.join(Config.RESULTS_DIR)
         os.makedirs(output_dir, exist_ok=True)
 
@@ -1014,7 +984,7 @@ class AnalyticsEngine:
                     return val
             return None
 
-        print("   -> Loading Blind Dataset into memory...")
+        print("[INFO] ℹ️ Loading Blind Dataset into memory...")
         blind_data = {}
         with open(blind_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -1027,7 +997,7 @@ class AnalyticsEngine:
                 except Exception:
                     continue
                     
-        print("   -> Loading Multimodal Dataset into memory...")
+        print("[INFO] ℹ️ Loading Multimodal Dataset into memory...")
         multi_data = {}
         with open(multi_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -1042,10 +1012,10 @@ class AnalyticsEngine:
 
         # Intersect IDs (Fast O(N) lookup)
         common_ids = set(blind_data.keys()).intersection(set(multi_data.keys()))
-        print(f"[*] Found {len(common_ids):,} intersecting records between both datasets.")
+        print(f"[INFO] ℹ️ Found {len(common_ids):,} intersecting records between both datasets.")
 
         if not common_ids:
-            print("[!] Error: No matching IDs found between the two datasets. Check your file paths and JSON structure.")
+            print("[ERROR] ❌ No matching IDs found between the two datasets. Check your file paths and JSON structure.")
             return
 
         y_blind = [blind_data[cid] for cid in common_ids]
@@ -1092,7 +1062,7 @@ class AnalyticsEngine:
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(latex_table)
 
-        print(f"   -> Success! PDF and LaTeX table saved in: {output_dir}")
+        print(f"[INFO] ✅ Success! PDF and LaTeX table saved in: {output_dir}")
 
 
 
