@@ -2,24 +2,16 @@ import os
 import seaborn as sns # type: ignore
 
 class Config:
-    # File Paths
-    # Mantemos o caminho original como referência base
-    _BASE_DATA_PATH = "DATA/4-inferred/INFERRED_MULTIMODAL_FINAL.jsonl"
-    _CACHE_BASE = "DATA/4-inferred/cascades_dataframe_cache.parquet"
+    # 1. Deteta dinamicamente o diretório base do projeto (Agnóstico a SO)
+    # Como o Utilities.py está dentro da pasta 'audit', subimos um nível para encontrar a raiz
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(CURRENT_DIR)
 
-    @staticmethod
-    def get_path(rel_path):
-        """Retorna o caminho absoluto se estiver no Docker, ou relativo se for Windows."""
-        if os.path.exists('/.dockerenv'):
-            return os.path.join('/app', rel_path)
-        return rel_path
-
-    # Agora estas variáveis são strings calculadas na hora que a classe é carregada
-    MULTIMODAL_PATH = get_path(_BASE_DATA_PATH)
-    CACHE_PATH = get_path(_CACHE_BASE)
-    
-    BLIND_PATH = "DATA/4-inferred/INFERRED_BLIND_DATASET.jsonl"
-    RESULTS_DIR = "results/unified_analytics"
+    # 2. File Paths absolutos construídos dinamicamente (Usa \ no Windows e / no Docker automaticamente)
+    MULTIMODAL_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "INFERRED_MULTIMODAL_FINAL.jsonl")
+    CACHE_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "cascades_dataframe_cache.parquet")
+    BLIND_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "INFERRED_BLIND_DATASET.jsonl")
+    RESULTS_DIR = os.path.join(CURRENT_DIR, "results", "unified_analytics")
     
     # Taxonomies
     VALID_SENTIMENTS = {'POSITIVE', 'NEUTRAL', 'NEGATIVE'}

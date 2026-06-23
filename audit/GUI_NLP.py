@@ -3,9 +3,45 @@ from tkinter import ttk, scrolledtext, messagebox
 import threading
 import sys
 import os
+import time
+import itertools
 import subprocess
 from datetime import datetime
 from Utilities import Config
+
+import threading
+import time
+import itertools
+
+class ConsoleSpinner:
+    def __init__(self, message="Aguarde"):
+        # self.spinner = itertools.cycle(['|', '/', '-', '\\'])
+        # self.spinner = itertools.cycle(['.   ', '..  ', '... ', '....'])
+        # self.spinner = itertools.cycle(['🕛', '🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚'])
+        # self.spinner = itertools.cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
+        self.spinner = itertools.cycle(['[    ]', '[=   ]', '[==  ]', '[=== ]', '[====]', '[ ===]', '[  ==]', '[   =]'])
+        
+        self.message = message
+        self.running = False
+        self.thread = None
+
+    def spin(self):
+        while self.running:
+            # O \r e o flush=True que configuramos no Tkinter farão a mágica aqui
+            print(f"\r{self.message} {next(self.spinner)}   ", end="", flush=True)
+            time.sleep(0.15) # Velocidade do giro
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self.spin, daemon=True)
+        self.thread.start()
+
+    def stop(self, success_message="Concluído!"):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+        # Limpa a linha e mostra a mensagem de sucesso
+        print(f"\r{self.message} {success_message}        \n", end="", flush=True)
 
 class RedirectText:
     def __init__(self, text_ctrl, root):
@@ -17,7 +53,16 @@ class RedirectText:
         self.root.after(0, self._sync_write, string)
         
     def _sync_write(self, string):
-        self.output.insert(tk.END, string)
+        """Processamento bruto que entende o Carriage Return (\r) nativamente"""
+        for char in string:
+            if char == '\r':
+                # Apaga rigorosamente todo o texto da linha atual
+                self.output.delete("end-1c linestart", "end-1c")
+            else:
+                # Insere o novo caractere na linha
+                self.output.insert("end-1c", char)
+                
+        # Mantém a janela ancorada no fundo
         self.output.see(tk.END)
 
     def flush(self):
@@ -113,13 +158,14 @@ class NLPGUI:
         # 1. Ensure container is awake before running
         self._ensure_container_is_ready()
         
-        self._log(f"ℹ️ Starting task: {task} (arg: {arg})", "INFO")
+        self._log(f"ℹ️ Starting task: {task} (arg: {arg}) - This might take a while...\n\n", "INFO")
         
         # 2. Working dir is /app/audit, so script name alone is sufficient
         cmd = ["docker", "exec", self.container_name, "python", "Analytical_NLP_Engine.py", arg]
         
         # 3. Stream logs to console
         self._stream_docker_logs(cmd)
+        
 
     def _log(self, message, level="INFO"):
         """Motor de log customizado para facilitar o debug"""
@@ -143,23 +189,24 @@ class NLPGUI:
         threading.Thread(target=self.run_docker_process, daemon=True).start()
 
     def _stream_docker_logs(self, cmd_list):
-        """Execute a system command and stream output in real time to the GUI console."""
         process = subprocess.Popen(
             cmd_list,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            encoding='utf-8',
-            errors='replace',
-            universal_newlines=True
+            bufsize=0 # binary mode
         )
-        for line in process.stdout:
-            print(f"[DOCKER-BUILD] {line}", end="")
+        
+        while True:
+            chunk = process.stdout.read(64)
+            if not chunk:
+                break
+            
+            texto = chunk.decode('utf-8', errors='replace')
+            print(texto, end="", flush=True)
             
         process.wait()
-        self.root.after(0, lambda: self.set_ui_state(tk.NORMAL))  # Re-enable UI when done
-        self.is_running = False
+        self.root.after(0, lambda: self.set_ui_state(tk.NORMAL))
+        return process.returncode
 
     def _ensure_container_is_ready(self):
         """Manage full Docker container lifecycle: create, start, or unpause as needed."""

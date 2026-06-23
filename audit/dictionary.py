@@ -84,14 +84,16 @@ CUSTOM_BR = [
     "bora",
     
     # Ruído Puro e Erros da Internet
-    "the", "br", "doi", "kkkkkk", "kkkkk", "kkkkkkk", "colsa", "iguma", "reai", "or", "tooo", 
-    "simainda", "prithe", "fodalta", "essoa", "pales", "filiadinhe", "isa", "homen", "of", "Jesu",
+    "the", "br", "doi", "kkk", "kkkkk", "kkkkkk", "kkkkkkk", "kkkkkkkk", "kkkkkkkkk", "kkkkkkkkkk", "kkkkkkkkkkk", "kkkkkkkkkkkk", "colsa", "iguma", "reai", "or", "tooo", 
+    "simainda", "prithe", "fodalta", "essoa", "pales", "filiadinhe", "isa", "homen", "of", "Jesu", "goo", "kra", "vim", "pow", "saudadeee", "daifukart", "advert", "jaderluce", 
+    "archdaily", "ew", "ila", "hím", "ksksk", "brucetildes", "poverty", "digai", "jim", "rbn", "taigao", "naboo", "political"
 
     # Mais alguns poluidores
     "pessoa", "pessoas", "gente", "coisa", "coisas", "lado", "forma", "jeito", "ponto", 
     "tempo", "dia", "vez", "hora", "ano", "momento", "toda", "todo", "todos", 
     "fazer", "feito", "falando", "disse", "dizer", "acha", "achei", "dá", "acho", "la", 
     "sido", "fiz", "ja", "si", "vi", "mim", "m", "v", "vou", "ah", "to", "deu", "r", "i"
+
 ]
 
 DOMAIN_STOPWORDS = [
@@ -115,4 +117,12 @@ DOMAIN_STOPWORDS = [
     "reddit",
     "sub",
     "link",
+    'http', 
+    'https', 
+    'www', 
+    'com', 
+    'br', 
+    'jpg', 
+    'png', 
+    'gif',
 ]
