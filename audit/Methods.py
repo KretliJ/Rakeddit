@@ -256,62 +256,56 @@ class AnalyticsEngine:
         print(f"[INFO] ✅ Phase 3 Complete. {len(self.df_cascades)} cascades loaded.")
         return True
 
-    def print_dataset_overview(self):
-        """Generates raw data for tables and saves on txt."""
+    def get_dataset_overview_string(self, interactive_only=False):
+        """Generates raw data for tables and returns it as a string."""
         import os
         import pandas as pd
         from Utilities import Config
         
-        df_cascades = self._prepare_quartiles(interactive_only=False)
-        output_file = os.path.join(Config.RESULTS_DIR, "Detailed_Dataset_Stats.txt")
-        
-        with open(output_file, "w", encoding="utf-8") as f:
-            def log_and_print(msg):
-                print(msg)
-                f.write(msg + "\n")
+        df_cascades = self._prepare_quartiles(interactive_only=interactive_only)
+        lines = []
 
-            log_and_print("\n" + "="*70)
-            log_and_print("[INFO] ℹ️ GLOBAL BASE REPORT")
-            log_and_print("="*70)
+        lines.append("\n" + "="*70)
+        lines.append("[INFO] ℹ️ GLOBAL BASE REPORT")
+        lines.append("="*70)
+        
+        # TABLE 3: Sentiments
+        lines.append("\n[INFO] ℹ️ [TABLE 3] Total valid comments per sentiment:")
+        total_comments = sum(self.global_sentiments.values())
+        for k, v in self.global_sentiments.items():
+            pct = (v / total_comments * 100) if total_comments > 0 else 0
+            lines.append(f"   - {k}: {v:,} ({pct:.2f}%)")
             
-            # TABLE 3: Sentiments
-            log_and_print("\n[INFO] ℹ️ [TABLE 3] Total valid comments per sentiment:")
-            total_comments = sum(self.global_sentiments.values())
-            for k, v in self.global_sentiments.items():
-                pct = (v / total_comments * 100) if total_comments > 0 else 0
-                log_and_print(f"   - {k}: {v:,} ({pct:.2f}%)")
-                
-            # TABLE 2: Cascades
-            log_and_print("\n[INFO] ℹ️ [TABLE 2] Cascade negativity quartile boundaries:")
-            for q in ['Q1', 'Q2', 'Q3', 'Q4']:
-                subset = df_cascades[df_cascades['neg_quartile'] == q]['Perc_Negative']
+        # TABLE 2: Cascades
+        lines.append("\n[INFO] ℹ️ [TABLE 2] Cascade negativity quartile boundaries:")
+        for q in ['Q1', 'Q2', 'Q3', 'Q4']:
+            subset = df_cascades[df_cascades['neg_quartile'] == q]['Perc_Negative']
+            count = len(subset)
+            if count > 0:
+                lines.append(f"   - {q}: {count:,} cascatas | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
+
+        # TABLE 1: Users
+        lines.append("\n[INFO] ℹ️ [TABLE 1] Users negativity quartile boundaries (homophily):")
+        user_data = []
+        for author, counts in self.user_sentiments.items():
+            if counts['total'] > 0:
+                pct_neg = (counts['negative'] / counts['total']) * 100
+                user_data.append({'author': author, 'perc_negative': pct_neg})
+        
+        if user_data:
+            df_users = pd.DataFrame(user_data)
+            
+            bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
+            df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+            
+            for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']:
+                subset = df_users[df_users['user_type'] == q]['perc_negative']
                 count = len(subset)
                 if count > 0:
-                    log_and_print(f"   - {q}: {count:,} cascatas | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
+                    lines.append(f"[INFO] ℹ️ - {q}: {count:,} users | Start: {subset.min():.2f}% -> End: {subset.max():.2f}%")
 
-            # TABLE 1: Users
-            log_and_print("\n[INFO] ℹ️ [TABLE 1] Users negativity quartile boundaries (homophily):")
-            user_data = []
-            for author, counts in self.user_sentiments.items():
-                if counts['total'] > 0:
-                    pct_neg = (counts['negative'] / counts['total']) * 100
-                    user_data.append({'author': author, 'perc_negative': pct_neg})
-            
-            if user_data:
-                df_users = pd.DataFrame(user_data)
-                
-                bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
-                df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
-                
-                for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']:
-                    subset = df_users[df_users['user_type'] == q]['perc_negative']
-                    count = len(subset)
-                    if count > 0:
-                        log_and_print(f"[INFO] ℹ️ - {q}: {count:,} users | Start: {subset.min():.2f}% -> End: {subset.max():.2f}%")
-
-            log_and_print("="*70 + "\n")
-            
-        print(f"[INFO] ✅ Full tables report saved in: {output_file}")
+        lines.append("="*70 + "\n")
+        return "\n".join(lines)
 
     def _prepare_quartiles(self, interactive_only=False):
         df = self.df_cascades.copy()
@@ -476,9 +470,9 @@ class AnalyticsEngine:
 
     def run_statistical_reports(self, grouping="Categories", interactive_only=False):
         import itertools
-        self.print_dataset_overview()
+        overview_text = self.get_dataset_overview_string(interactive_only)
         self.generate_cascade_diagram()
-        print(f"[INFO] ℹ️ Exporting Statistical Reports (PDF & TXT) by {grouping}...")
+        print(f"[INFO] ℹ️ Exporting Master Statistical Reports (PDF & TXT) by {grouping}...")
         df = self._prepare_quartiles(interactive_only)
         
         group_col, groups_list, _, output_dir = self._get_grouping_config(grouping, df, interactive_only)
@@ -564,15 +558,57 @@ class AnalyticsEngine:
         plt.tight_layout()
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"[INFO] ✅ Guardado com sucesso: Statistical_Report_Summary.pdf")
 
+        # --- SEÇÃO 3.4: CORRELAÇÕES DE TAMANHO VS NEGATIVIDADE ---
+        df_clean_cascades = df[['Cascade_Size', 'Perc_Negative']].dropna()
+        if not df_clean_cascades.empty:
+            corr_c, p_c = stats.spearmanr(df_clean_cascades['Cascade_Size'], df_clean_cascades['Perc_Negative'])
+        else:
+            corr_c, p_c = float('nan'), float('nan')
+
+        user_sizes = []
+        user_negs = []
+        for author, counts in self.user_sentiments.items():
+            if counts['total'] > 0:
+                user_sizes.append(counts['total'])
+                user_negs.append((counts['negative'] / counts['total']) * 100)
+                
+        if user_sizes:
+            corr_u, p_u = stats.spearmanr(user_sizes, user_negs)
+        else:
+            corr_u, p_u = float('nan'), float('nan')
+
+        # --- NOVA EXPORTAÇÃO UNIFICADA (MASTER TXT) ---
         txt_metrics = ['Structural_Virality', 'Max_Depth', 'Max_Breadth', 'Cascade_Size', 'Duration_Hours', 'Longest_Neg_Run_Ratio', 'Average_Score']
-        txt_file_path = os.path.join(output_dir, "Detailed_Pairwise_Stats.txt")
+        master_txt_path = os.path.join(output_dir, "Master_Structural_Statistics.txt")
         
-        with open(txt_file_path, "w") as f:
+        with open(master_txt_path, "w", encoding="utf-8") as f:
+            f.write(overview_text)
+            f.write("\n" + "="*80 + "\n")
+            f.write("   GLOBAL DATASET OVERVIEW SUMMARY (Base census)\n")
+            f.write("="*80 + "\n\n")
+            f.write(df_global.to_string(index=False))
+            f.write("\n\n")
+            
+            if stats_results:
+                f.write("="*120 + "\n")
+                f.write(f"   STATISTICAL VALIDATION REPORT ({grouping})\n")
+                f.write("="*120 + "\n\n")
+                f.write(df_stats.to_string(index=False))
+                f.write("\n\n")
+                
+            f.write("="*80 + "\n")
+            f.write("   SECTION 3.4: SIZE VS NEGATIVITY CORRELATION\n")
+            f.write("="*80 + "\n\n")
+            f.write(f"Cascades (N(c) vs Neg(c)): Spearman Rho = {corr_c:.4f}, p-value = {p_c:.2e}\n")
+            f.write(f"Users (N(u) vs Neg(u)):    Spearman Rho = {corr_u:.4f}, p-value = {p_u:.2e}\n\n")
+
+            f.write("="*80 + "\n")
+            f.write("   DETAILED PAIRWISE STATS\n")
+            f.write("="*80 + "\n")
             for col in txt_metrics:
                 if col not in df.columns: continue
-                f.write(f"\n{'='*40}\nMETRIC: {col}\n{'='*40}\n")
+                f.write(f"\n{'-'*40}\nMETRIC: {col}\n{'-'*40}\n")
                 
                 groups_dict = {cat: df[df[group_col] == cat][col].dropna().values for cat in groups_list}
                 
@@ -588,8 +624,45 @@ class AnalyticsEngine:
                         ks_stat, ks_p = stats.ks_2samp(arr1, arr2)
                         f.write(f"KS Test ({g1} vs {g2}): D={ks_stat:.4f}, p={ks_p:.2e}\n")
                         
-        print(f"[INFO] ✅ Guardado com sucesso: Detailed_Pairwise_Stats.txt")
-    
+        print(f"[INFO] ✅ Saved Master Report: Master_Structural_Statistics.txt")
+
+        # --- NOVA GERAÇÃO DE GRÁFICO (SCATTER + TRENDLINE) PARA A SEÇÃO 3.4 ---
+        Config.set_sns_theme()
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+        # Plot 1: Cascades (N(c) vs Neg(c))
+        sns.scatterplot(x=df_clean_cascades['Cascade_Size'], y=df_clean_cascades['Perc_Negative'], 
+                        ax=axes[0], alpha=0.3, color='#3498db', edgecolor='black', linewidth=0.3)
+        sns.regplot(x=df_clean_cascades['Cascade_Size'], y=df_clean_cascades['Perc_Negative'], 
+                    scatter=False, ax=axes[0], color='black', line_kws={'linewidth': 2.5, 'linestyle': '--'})
+        
+        axes[0].set_xscale('log')
+        axes[0].set_title(f"CASCADES: SIZE VS NEGATIVITY\n($\\rho$={corr_c:.3f}, $p$={p_c:.1e})", fontsize=14, fontweight='bold', pad=10)
+        axes[0].set_xlabel("CASCADE SIZE $N(c)$ (Log Scale)", fontsize=12, fontweight='bold')
+        axes[0].set_ylabel("NEGATIVITY RATIO $Neg(c)$ (%)", fontsize=12, fontweight='bold')
+        axes[0].yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+        axes[0].tick_params(labelsize=12)
+
+        # Plot 2: Users (N(u) vs Neg(u))
+        df_users_plot = pd.DataFrame({'User_Size': user_sizes, 'Perc_Negative': user_negs})
+        sns.scatterplot(x=df_users_plot['User_Size'], y=df_users_plot['Perc_Negative'], 
+                        ax=axes[1], alpha=0.3, color='#e74c3c', edgecolor='black', linewidth=0.3)
+        sns.regplot(x=df_users_plot['User_Size'], y=df_users_plot['Perc_Negative'], 
+                    scatter=False, ax=axes[1], color='black', line_kws={'linewidth': 2.5, 'linestyle': '--'})
+        
+        axes[1].set_xscale('log')
+        axes[1].set_title(f"USERS: MESSAGE COUNT VS NEGATIVITY\n($\\rho$={corr_u:.3f}, $p$={p_u:.1e})", fontsize=14, fontweight='bold', pad=10)
+        axes[1].set_xlabel("USER MESSAGE COUNT $N(u)$ (Log Scale)", fontsize=12, fontweight='bold')
+        axes[1].set_ylabel("NEGATIVITY RATIO $Neg(u)$ (%)", fontsize=12, fontweight='bold')
+        axes[1].yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+        axes[1].tick_params(labelsize=12)
+
+        sns.despine()
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "Fig_Section_3_4_Correlations.pdf"), dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"[INFO] ✅ Saved Figure: Fig_Section_3_4_Correlations.pdf")
+
     def run_rq3_analysis(self, grouping="Categories", interactive_only=False):
         print(f"[INFO] ℹ️ Generating RQ3: Taxonomy Cascades Trendlines by {grouping}...")
         Config.set_sns_theme()
@@ -841,7 +914,52 @@ class AnalyticsEngine:
         
         plt.savefig(os.path.join(output_dir, "Homophily_Replies_Heatmap.pdf"), dpi=300, bbox_inches='tight')
         plt.close()
-        print("[INFO] ✅ Saved: Homophily Analyses (Barplot and Heatmap)")
+        
+        # --- ESTATÍSTICAS UNIFICADAS PARA HOMOFILIA (Master File) ---
+        with open(os.path.join(output_dir, "Master_Homophily_Statistics.txt"), "w", encoding="utf-8") as f:
+            f.write("="*80 + "\n")
+            f.write("   HOMOPHILY BARPLOT STATS (H_i across UQ1-UQ4)\n")
+            f.write("="*80 + "\n\n")
+            
+            g_h = [df_h[df_h['user_type'] == q]['H_i'].dropna().values for q in order]
+            if len(g_h) == 4 and all(len(g) > 0 for g in g_h):
+                h_stat, p_val = stats.kruskal(*g_h)
+                ks_14, p_14 = stats.ks_2samp(g_h[0], g_h[3])
+                ks_34, p_34 = stats.ks_2samp(g_h[2], g_h[3])
+                ks_13, p_13 = stats.ks_2samp(g_h[0], g_h[2])
+                
+                f.write(f"Kruskal-Wallis (Global UQ1-UQ4): H={h_stat:.4f}, p={p_val:.4e}\n")
+                f.write(f"Kolmogorov-Smirnov (UQ1 vs UQ4): D={ks_14:.4f}, p={p_14:.4e}\n")
+                f.write(f"Kolmogorov-Smirnov (UQ3 vs UQ4): D={ks_34:.4f}, p={p_34:.4e}\n")
+                f.write(f"Kolmogorov-Smirnov (UQ1 vs UQ3): D={ks_13:.4f}, p={p_13:.4e}\n\n")
+
+            f.write("="*80 + "\n")
+            f.write("   HOMOPHILY REPLIES HEATMAP STATS (Target Negativity Distributions)\n")
+            f.write("="*80 + "\n\n")
+            
+            edge_data_cont = []
+            for s, t in self.global_user_edges:
+                s_type = user_type_map.get(s)
+                if s_type:
+                    t_neg = (self.user_sentiments[t]['negative']/self.user_sentiments[t]['total'])*100 if self.user_sentiments.get(t) and self.user_sentiments[t]['total'] > 0 else np.nan
+                    if not np.isnan(t_neg):
+                        edge_data_cont.append({'Source_Type': s_type, 'Target_Negativity': t_neg})
+            df_edges_cont = pd.DataFrame(edge_data_cont)
+            
+            if not df_edges_cont.empty:
+                g_targets = [df_edges_cont[df_edges_cont['Source_Type'] == q]['Target_Negativity'].values for q in order]
+                if len(g_targets) == 4 and all(len(g) > 0 for g in g_targets):
+                    h_stat_t, p_val_t = stats.kruskal(*g_targets)
+                    ks_t_14, p_t_14 = stats.ks_2samp(g_targets[0], g_targets[3])
+                    ks_t_34, p_t_34 = stats.ks_2samp(g_targets[2], g_targets[3])
+                    ks_t_13, p_t_13 = stats.ks_2samp(g_targets[0], g_targets[2])
+                    
+                    f.write(f"Kruskal-Wallis (Target Negativity across Source UQ1-UQ4): H={h_stat_t:.4f}, p={p_val_t:.4e}\n")
+                    f.write(f"Kolmogorov-Smirnov (Targets of UQ1 vs Targets of UQ4): D={ks_t_14:.4f}, p={p_t_14:.4e}\n")
+                    f.write(f"Kolmogorov-Smirnov (Targets of UQ3 vs Targets of UQ4): D={ks_t_34:.4f}, p={p_t_34:.4e}\n")
+                    f.write(f"Kolmogorov-Smirnov (Targets of UQ1 vs Targets of UQ3): D={ks_t_13:.4f}, p={p_t_13:.4e}\n")
+
+        print("[INFO] ✅ Saved Master Report: Master_Homophily_Statistics.txt")
 
     def generate_cascade_diagram(self, *args, **kwargs):
         import networkx as nx
@@ -998,5 +1116,3 @@ class AnalyticsEngine:
             f.write(latex_table)
 
         print(f"[INFO] ✅ Success! PDF and LaTeX table saved in: {output_dir}")
-
-

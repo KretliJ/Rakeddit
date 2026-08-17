@@ -72,6 +72,21 @@ class NLPEngine:
         self.pt_stopwords = list(set(academic_stopwords_pt) | set(academic_stopwords_en) | set(CUSTOM_BR) | set(DOMAIN_STOPWORDS) | reddit_noise)
         print(f"[INFO] ℹ️  Engine initialized with {len(self.pt_stopwords):,} combined stopwords (PT+EN+ES+Custom+Noise).")
 
+        # --- ARQUIVOS MESTRES CENTRALIZADORES ---
+        self.master_stats_file = os.path.join(self.output_dir, "Master_NLP_Statistics.txt")
+        self.master_latex_file = os.path.join(self.output_dir, "Master_NLP_LaTeX_Tables.txt")
+        
+        # Limpa execuções antigas para não criar cópias gigantes do mesmo dado
+        with open(self.master_stats_file, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write("                 MASTER NLP STATISTICAL REPORT\n")
+            f.write("="*80 + "\n\n")
+
+        with open(self.master_latex_file, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write("                 MASTER NLP LATEX TABLES\n")
+            f.write("="*80 + "\n\n")
+
     def _get_cascade_quartiles(self):
         print("[INFO] ℹ️  Extracting cascade structural boundaries...")
         engine = AnalyticsEngine()
@@ -121,6 +136,7 @@ class NLPEngine:
         print("[*] Resolving cascade trees and allocating quartiles...")
         data_rows = []
         count = 0
+        spinner_inline = itertools.cycle(['[    ]', '[=   ]', '[==  ]', '[=== ]', '[====]', '[ ===]', '[  ==]', '[   =]'])
 
         def get_cascade_quartile_and_root(m_id):
             curr = m_id
@@ -148,7 +164,7 @@ class NLPEngine:
                 })
                 count += 1
                 if count % 10000 == 0:
-                    print(f"\r[DEBUG] Allocated {count:,} messages to cascades... ({(time.time() - start_load):.2f}s)", end="", flush=True)
+                    print(f"\r[DEBUG] Allocated {count:,} messages to cascades... {next(spinner_inline)} ({(time.time() - start_load):.2f}s)    ", end="", flush=True)
 
         df_comments = pd.DataFrame(data_rows)
 
@@ -306,8 +322,9 @@ class NLPEngine:
                         latex_text += f"    \\item \\textit{{{words}}} (Frequência: {freq})\n"
                     latex_text += "\\end{itemize}\n\n"
                     
-            with open(os.path.join(self.output_dir, file_name), "w", encoding="utf-8") as f:
-                f.write(latex_text)
+            with open(self.master_latex_file, "a", encoding="utf-8") as f:
+                f.write(f"=== {file_name.replace('.txt', '')} ===\n")
+                f.write(latex_text + "\n")
 
         # Export topics per cascade quartile (Q1–Q4)
         topics_per_cascade = topic_model.topics_per_class(docs, classes=classes_cascades)
@@ -393,22 +410,34 @@ class NLPEngine:
 
         # Statistical tests (Kruskal-Wallis and Kolmogorov-Smirnov)
         print("[INFO] ℹ️ Running Kruskal-Wallis and KS statistical tests...")
-        with open(os.path.join(self.output_dir, "Entropy_Statistics.txt"), "w", encoding="utf-8") as f:
-            f.write("=== SHANNON ENTROPY STATISTICAL TESTS ===\n\n")
+        with open(self.master_stats_file, "a", encoding="utf-8") as f:
+            f.write("="*80 + "\n")
+            f.write("   SHANNON ENTROPY STATISTICAL TESTS\n")
+            f.write("="*80 + "\n\n")
 
             g_c = [df_cascades_entropy[df_cascades_entropy['Quartile'] == q]['Thematic_Entropy'].dropna().values for q in ['Q1', 'Q2', 'Q3', 'Q4']]
             if len(g_c) == 4 and all(len(g) > 0 for g in g_c):
                 h, p = kruskal(*g_c)
-                ks_s, ks_p = ks_2samp(g_c[0], g_c[3])
+                ks_14, p_14 = ks_2samp(g_c[0], g_c[3])
+                ks_34, p_34 = ks_2samp(g_c[2], g_c[3])
+                ks_13, p_13 = ks_2samp(g_c[0], g_c[2])
+                
                 f.write(f"[CASCADES] Kruskal-Wallis (Global Q1-Q4): H={h:.4f}, p={p:.4e}\n")
-                f.write(f"[CASCADES] Kolmogorov-Smirnov (Q1 vs Q4): D={ks_s:.4f}, p={ks_p:.4e}\n\n")
+                f.write(f"[CASCADES] Kolmogorov-Smirnov (Q1 vs Q4): D={ks_14:.4f}, p={p_14:.4e}\n")
+                f.write(f"[CASCADES] Kolmogorov-Smirnov (Q3 vs Q4): D={ks_34:.4f}, p={p_34:.4e}\n")
+                f.write(f"[CASCADES] Kolmogorov-Smirnov (Q1 vs Q3): D={ks_13:.4f}, p={p_13:.4e}\n\n")
 
             g_u = [df_users_entropy[df_users_entropy['User_Type'] == q]['Thematic_Entropy'].dropna().values for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']]
             if len(g_u) == 4 and all(len(g) > 0 for g in g_u):
                 h_u, p_u = kruskal(*g_u)
-                ks_s_u, ks_p_u = ks_2samp(g_u[0], g_u[3])
+                ks_u_14, p_u_14 = ks_2samp(g_u[0], g_u[3])
+                ks_u_34, p_u_34 = ks_2samp(g_u[2], g_u[3])
+                ks_u_13, p_u_13 = ks_2samp(g_u[0], g_u[2])
+                
                 f.write(f"[USERS] Kruskal-Wallis (Global UQ1-UQ4): H={h_u:.4f}, p={p_u:.4e}\n")
-                f.write(f"[USERS] Kolmogorov-Smirnov (UQ1 vs UQ4): D={ks_s_u:.4f}, p={ks_p_u:.4e}\n")
+                f.write(f"[USERS] Kolmogorov-Smirnov (UQ1 vs UQ4): D={ks_u_14:.4f}, p={p_u_14:.4e}\n")
+                f.write(f"[USERS] Kolmogorov-Smirnov (UQ3 vs UQ4): D={ks_u_34:.4f}, p={p_u_34:.4e}\n")
+                f.write(f"[USERS] Kolmogorov-Smirnov (UQ1 vs UQ3): D={ks_u_13:.4f}, p={p_u_13:.4e}\n\n")
 
         print(f"[INFO] ℹ️ Entropy analysis completed in {(time.time() - start_entropy):.2f}s.")
         print("\n[SYSTEM] SAVING OUTPUT FILES\n")
@@ -457,27 +486,41 @@ class NLPEngine:
 
             top_g1 = df_val_filtered.nsmallest(10, 'Valence').copy()
             top_g2 = df_val_filtered.nlargest(10, 'Valence').copy()
-            df_plot = pd.concat([top_g1, top_g2]).sort_values(by='Valence')
-            df_plot['Color'] = df_plot['Valence'].apply(lambda x: color_g1 if x < 0 else color_g2)
+
+            # Ordena para os valores mais extremos ficarem no topo (index 9)
+            top_g1 = top_g1.sort_values(by='Valence', ascending=False).reset_index(drop=True)
+            top_g2 = top_g2.sort_values(by='Valence', ascending=True).reset_index(drop=True)
 
             Config.set_sns_theme()
-            fig, ax = plt.subplots(figsize=(12, 10))
-            bars = ax.barh(df_plot['Term'], df_plot['Valence'], color=df_plot['Color'], edgecolor='black', height=0.7)
+            # Reduz a altura do gráfico (de 10 para 6)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            y_pos = np.arange(10)
+
+            # Desenha as barras opostas na mesma linha (Tornado/Butterfly Chart)
+            bars_g1 = ax.barh(y_pos, top_g1['Valence'], color=color_g1, edgecolor='black', height=0.5, alpha=0.9)
+            bars_g2 = ax.barh(y_pos, top_g2['Valence'], color=color_g2, edgecolor='black', height=0.5, alpha=0.9)
+
             ax.axvline(0, color='black', linewidth=1.5)
-            
-            ax.tick_params(axis='y', pad=15)
-            
-            max_val = df_plot['Valence'].abs().max()
-            ax.set_xlim(-max_val * 1.2, max_val * 1.2)
+            ax.set_yticks([]) # Remove as marcações centrais do eixo Y
+
+            # Escreve as palavras lado a lado com as barras
+            for i in range(10):
+                val1 = top_g1.loc[i, 'Valence']
+                term1 = top_g1.loc[i, 'Term'].upper()
+                ax.text(val1 - 0.03, i, f"{term1} ({val1:.2f})", va='center', ha='right', fontsize=12, fontweight='bold')
+
+                val2 = top_g2.loc[i, 'Valence']
+                term2 = top_g2.loc[i, 'Term'].upper()
+                ax.text(val2 + 0.03, i, f"({val2:.2f}) {term2}", va='center', ha='left', fontsize=12, fontweight='bold')
+
+            # Define limites para caber o texto, mas mantém os Ticks fiéis ao [-1, 1]
+            ax.set_xlim(-1.4, 1.4)
+            ax.set_xticks([-1.0, -0.5, 0, 0.5, 1.0])
             
             ax.set_xlabel(f'SEMANTIC VALENCE\n(← {g1_label} Dominated | {g2_label} Dominated →)', fontsize=14, fontweight='bold')
 
-            for bar in bars:
-                w = bar.get_width()
-                ax.text(w - 0.02 if w < 0 else w + 0.02, bar.get_y() + bar.get_height() / 2,
-                        f'{w:.2f}', va='center', ha='right' if w < 0 else 'left', fontsize=12, fontweight='bold')
+            sns.despine(left=True)
 
-            sns.despine()
             safe_g1, safe_g2 = g1_label.replace('+', '_plus_'), g2_label.replace('+', '_plus_')
             plt.savefig(os.path.join(self.output_dir, f"Fig_Valence_{title_prefix}_{safe_g1}_vs_{safe_g2}.pdf"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -496,10 +539,12 @@ class NLPEngine:
                 row_g1 = top_g1.iloc[i]
                 row_g2 = top_g2.iloc[9 - i]
                 latex_table += f"        {row_g1['Term']} & {row_g1['Valence']:.2f} & {int(row_g1['Total_Count'])} & "
-                latex_table += f"{row_g2['Term']} & {row_g2['Valence']:.2f} & {int(row_g2['Total_Count'])} \\\\\n"
+            latex_table += f"{row_g2['Term']} & {row_g2['Valence']:.2f} & {int(row_g2['Total_Count'])} \\\\\n"
             latex_table += """        \\bottomrule\n    \\end{tabular}\n\\end{table}\n"""
-            with open(os.path.join(self.output_dir, f"Table_Valence_{title_prefix}_{safe_g1}_vs_{safe_g2}.txt"), "w", encoding="utf-8") as f:
-                f.write(latex_table)
+            
+            with open(self.master_latex_file, "a", encoding="utf-8") as f:
+                f.write(f"=== VALENCE TABLE: {title_prefix} ({safe_g1} vs {safe_g2}) ===\n")
+                f.write(latex_table + "\n\n")
 
         compute_and_plot_valence(df_valid, 'Quartile', 'Q1', 'Q4', 'Cascades_Extremes', c_q1, c_q4)
         compute_and_plot_valence(df_valid, 'User_Type', 'UQ1', 'UQ4', 'Users_Extremes', c_q1, c_q4)
@@ -561,9 +606,11 @@ class NLPEngine:
         def process_and_plot_liwc(df_text, id_col, group_col, group_labels, filename_prefix):
             liwc_results = []
             total_rows = len(df_text)
+            spinner_inline = itertools.cycle(['[    ]', '[=   ]', '[==  ]', '[=== ]', '[====]', '[ ===]', '[  ==]', '[   =]'])
+            
             for row_num, (_, row) in enumerate(df_text.iterrows()):
                 if row_num % 1000 == 0:
-                    print(f"\r[*] Processing row {row_num}/{total_rows}...    ", end="", flush=True)
+                    print(f"\r[*] Processing row {row_num}/{total_rows}... {next(spinner_inline)}    ", end="", flush=True)
                 try:
                     body = row['Body']
                     if not isinstance(body, str) or not body.strip():
@@ -619,14 +666,63 @@ class NLPEngine:
 
             df_stats = pd.DataFrame(stats_results).sort_values(by='Spearman_Rho', ascending=False, na_position='last')
 
+            # --- Exportação em Texto Simples no Arquivo Mestre ---
+            txt_output = f"=== Spearman Correlation between Negativity and LIWC ({filename_prefix}) ===\n\n"
+            for _, row in df_stats.iterrows():
+                rho_str = "N/A" if pd.isna(row['Spearman_Rho']) else f"{row['Spearman_Rho']:.4f}"
+                p_str = "N/A" if pd.isna(row['P_Value']) else f"{row['P_Value']:.4e}"
+                txt_output += f"{row['LIWC_Category']}: Spearman Rho = {rho_str}, p-value = {p_str}\n"
+                
+            with open(self.master_stats_file, "a", encoding="utf-8") as f:
+                f.write(txt_output + "\n")
+
+            # --- Exportação em LaTeX no Arquivo Mestre ---
             latex_table = f"\\begin{{table}}[htbp]\n    \\centering\n    \\caption{{Spearman Correlation between Negativity and LIWC ({filename_prefix}).}}\n    \\begin{{tabular}}{{lcc}}\n        \\toprule\n        \\textbf{{LIWC Category}} & \\textbf{{$\\rho$ (Spearman)}} & \\textbf{{$p$-value}} \\\\\n        \\midrule\n"
             for _, row in df_stats.iterrows():
                 rho_str = "N/A" if pd.isna(row['Spearman_Rho']) else f"{row['Spearman_Rho']:.4f}"
                 p_str = "N/A" if pd.isna(row['P_Value']) else ("< 0.001" if row['P_Value'] < 0.001 else f"{row['P_Value']:.4f}")
                 latex_table += f"        {row['LIWC_Category']} & {rho_str} & {p_str} \\\\\n"
             latex_table += "        \\bottomrule\n    \\end{tabular}\n\\end{table}"
-            with open(os.path.join(self.output_dir, f"Table_LIWC_Correlations_{filename_prefix}.txt"), "w", encoding="utf-8") as f:
-                f.write(latex_table)
+            
+            with open(self.master_latex_file, "a", encoding="utf-8") as f:
+                f.write(f"=== LIWC CORRELATIONS TABLE ({filename_prefix}) ===\n")
+                f.write(latex_table + "\n\n")
+                
+            # --- ESTATÍSTICAS DE DISTRIBUIÇÃO LIWC (Kruskal-Wallis e KS Test) ---
+            stats_results_kw = []
+            for cat in target_concepts:
+                g_c = [df_final[df_final[group_col] == q][cat].dropna().values for q in group_labels]
+                
+                if len(g_c) == 4 and all(len(g) > 0 for g in g_c):
+                    h_stat, p_val = kruskal(*g_c)
+                    ks_stat_14, ks_p_14 = ks_2samp(g_c[0], g_c[3])
+                    ks_stat_34, ks_p_34 = ks_2samp(g_c[2], g_c[3])
+                    ks_stat_13, ks_p_13 = ks_2samp(g_c[0], g_c[2])
+                else:
+                    h_stat, p_val = float('nan'), float('nan')
+                    ks_stat_14, ks_p_14 = float('nan'), float('nan')
+                    ks_stat_34, ks_p_34 = float('nan'), float('nan')
+                    ks_stat_13, ks_p_13 = float('nan'), float('nan')
+                
+                stats_results_kw.append({
+                    'LIWC_Category': cat.upper(),
+                    'Kruskal_H': h_stat, 'Kruskal_p': p_val,
+                    'KS_D_14': ks_stat_14, 'KS_p_14': ks_p_14,
+                    'KS_D_34': ks_stat_34, 'KS_p_34': ks_p_34,
+                    'KS_D_13': ks_stat_13, 'KS_p_13': ks_p_13
+                })
+            
+            df_kw = pd.DataFrame(stats_results_kw)
+            with open(self.master_stats_file, "a", encoding="utf-8") as f:
+                f.write(f"=== LIWC CATEGORIES DISTRIBUTION TESTS ({filename_prefix}) ===\n")
+                for _, row in df_kw.iterrows():
+                    f.write(f"\nCategory: {row['LIWC_Category']}\n")
+                    f.write(f"  Kruskal-Wallis (Across {group_col}): H={row['Kruskal_H']:.4f}, p={row['Kruskal_p']:.4e}\n")
+                    f.write(f"  Kolmogorov-Smirnov ({group_labels[0]} vs {group_labels[3]}): D={row['KS_D_14']:.4f}, p={row['KS_p_14']:.4e}\n")
+                    f.write(f"  Kolmogorov-Smirnov ({group_labels[2]} vs {group_labels[3]}): D={row['KS_D_34']:.4f}, p={row['KS_p_34']:.4e}\n")
+                    f.write(f"  Kolmogorov-Smirnov ({group_labels[0]} vs {group_labels[2]}): D={row['KS_D_13']:.4f}, p={row['KS_p_13']:.4e}\n")
+                f.write("\n")
+
             print("\n[SYSTEM] SAVING OUTPUT FILES\n")
 
         # 1. LIWC for CASCADES

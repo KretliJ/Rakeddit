@@ -71,6 +71,7 @@ Clone the repository and install the required Python packages. The pipeline reli
 git clone https://github.com/KretliJ/Rakeddit
 cd Rakeddit
 pip install -r requirements.txt
+pip install -r audit/NLP_requirements.txt
 ```
 
 #### 3. Local AI Provisioning (Ollama)
@@ -116,15 +117,20 @@ python main.py
 
 ### [ VERSION HISTORY ]
 
+* Version 4.4.2 (Human Validation Framework Update)
+  * Introduced tools for human validation of the dataset in audit/humanValidation.
+  * `sample_comments.py` collects 100 random comments from each negativity quartile.
+  * `humman_annotation.py` presents a CLI for annotating comments.
+  * `compare_labels.py` compares model annotation against human ground truth.
+  * `check_cascade_stats.py` and `sample_comments.py` generate additional data on quartiles 3 and 4 comparison.
+<details>
+<summary>Version History  </summary>
+
 * Version 4.3.0 (Docker & Modular NLP Update)
   * Introduced `GUI_NLP.py` for modular, GPU-accelerated NLP and Psycholinguistics pipeline execution.
   * Integrated Docker containerization with automatic state management and dynamic volume mapping.
   * Resolved Pandas Series typing conflicts and deadlock issues in the BERTopic and WordCloud pipeline.
   * Isolated LIWC processing for standalone execution, improving inference cache efficiency.
-
-<details>
-<summary>Version History  </summary>
-
 * Version 4.2.2 (Stability)
   * Improved text validation
   * Refactored homophilia method
@@ -173,12 +179,9 @@ python main.py
 
 </details>
 
-
-
 ### [ DISCLAIMER ]
 
 Rakeddit and related modules are provided "as is" for educational, scientific research, and result reproduction purposes only.
 
 * **Platform Compliance:** The authors and developer assume zero liability for platform rate-limit compliance infractions occurring from the usage of this artifact.
 * **Legal Responsibility:** Users are strictly responsible for ensuring their usage complies with Reddit's Terms of Service and all applicable data protection laws, including but not limited to the GDPR (EU), LGPD (Brazil), and CCPA (California).
-
