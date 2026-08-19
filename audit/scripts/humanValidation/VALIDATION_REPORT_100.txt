@@ -1,0 +1,125 @@
+============================================================
+   RELATÓRIO DE VALIDAÇÃO MANUAL (100 amostras)
+============================================================
+
+Total de amostras anotadas: 100
+Acurácia geral: 0.4500 (45.00%)
+
+Matriz de Confusão:
+      NEG      NEU      POS
+NEG       20        3        0
+NEU       42       22        6
+POS        4        0        3
+
+Métricas por Classe:
+  NEG: Prec=0.3030, Rec=0.8696, F1=0.4494
+  NEU: Prec=0.8800, Rec=0.3143, F1=0.4632
+  POS: Prec=0.3333, Rec=0.4286, F1=0.3750
+
+Médias de Confiança do Classificador:
+  NEG: 0.8093 (n=23)
+  NEU: 0.6934 (n=70)
+  POS: 0.7576 (n=7)
+  Média Geral: 0.7535
+
+Detalhamento por Comentário:
+  o6srp7c: AI=NEU (0.813) | Humano=NEU | ✓
+  nn8ety9: AI=NEG (0.927) | Humano=NEG | ✓
+  nexaqas: AI=NEU (0.821) | Humano=NEU | ✓
+  o8zwg52: AI=NEG (0.923) | Humano=NEG | ✓
+  nzxwyah: AI=NEG (0.593) | Humano=NEU | ✗
+  o5hxpdp: AI=NEG (0.718) | Humano=NEU | ✗
+  nfqptcu: AI=NEG (0.572) | Humano=NEU | ✗
+  mvaiojj: AI=NEG (0.886) | Humano=NEG | ✓
+  nwzh9w6: AI=NEG (0.840) | Humano=NEU | ✗
+  nyox920: AI=NEG (0.929) | Humano=NEG | ✓
+  nwd901a: AI=NEG (0.917) | Humano=NEU | ✗
+  o4shsgb: AI=POS (0.371) | Humano=NEU | ✗
+  nr8pbmm: AI=NEG (0.793) | Humano=NEU | ✗
+  nupgywp: AI=NEG (0.921) | Humano=NEU | ✗
+  okhttq7: AI=NEU (0.621) | Humano=NEU | ✓
+  nqswx3a: AI=NEU (0.706) | Humano=NEU | ✓
+  oe0mdux: AI=NEU (0.442) | Humano=NEU | ✓
+  nvk8hjm: AI=NEU (0.839) | Humano=NEU | ✓
+  nvp55dk: AI=NEG (0.875) | Humano=NEG | ✓
+  nf1x51t: AI=POS (0.769) | Humano=NEU | ✗
+  nm122lr: AI=NEG (0.769) | Humano=NEG | ✓
+  nmdubyq: AI=NEG (0.749) | Humano=NEU | ✗
+  ofsedhu: AI=NEG (0.688) | Humano=NEU | ✗
+  nxohmv7: AI=NEG (0.921) | Humano=NEG | ✓
+  oh0mr7l: AI=POS (0.392) | Humano=POS | ✓
+  nlgv7n7: AI=NEG (0.917) | Humano=NEG | ✓
+  o9vo44f: AI=NEG (0.494) | Humano=NEU | ✗
+  nlutilf: AI=NEG (0.682) | Humano=NEU | ✗
+  o68trtc: AI=NEG (0.478) | Humano=NEU | ✗
+  naepneg: AI=NEG (0.518) | Humano=NEU | ✗
+  nxhstf6: AI=NEG (0.561) | Humano=NEU | ✗
+  n29fsrm: AI=NEU (0.637) | Humano=NEU | ✓
+  mt2h9df: AI=NEG (0.807) | Humano=NEG | ✓
+  oaw2i2p: AI=NEG (0.929) | Humano=NEU | ✗
+  nupma1a: AI=NEG (0.897) | Humano=POS | ✗
+  mzmbsj4: AI=NEG (0.932) | Humano=NEG | ✓
+  ol52se2: AI=NEG (0.857) | Humano=NEU | ✗
+  ob4d669: AI=NEG (0.836) | Humano=NEG | ✓
+  ncquiem: AI=NEG (0.705) | Humano=NEU | ✗
+  mzvd192: AI=NEG (0.467) | Humano=NEU | ✗
+  ny77t23: AI=NEG (0.933) | Humano=NEG | ✓
+  oib56ap: AI=NEG (0.845) | Humano=NEG | ✓
+  oc7cj6a: AI=NEG (0.709) | Humano=NEU | ✗
+  o2pim5j: AI=NEG (0.639) | Humano=NEU | ✗
+  n87y2ua: AI=POS (0.903) | Humano=POS | ✓
+  mxqjp2n: AI=NEG (0.800) | Humano=POS | ✗
+  obo4h3g: AI=NEG (0.545) | Humano=NEU | ✗
+  oa4a3p8: AI=NEU (0.631) | Humano=NEU | ✓
+  o1gcebr: AI=NEG (0.936) | Humano=NEG | ✓
+  numduru: AI=NEG (0.884) | Humano=NEU | ✗
+  n6ajipl: AI=NEG (0.776) | Humano=NEG | ✓
+  n2t6kjq: AI=NEU (0.536) | Humano=NEU | ✓
+  nlq6t55: AI=NEG (0.818) | Humano=NEG | ✓
+  ns4wfit: AI=POS (0.522) | Humano=NEU | ✗
+  oe6dbax: AI=NEU (0.541) | Humano=NEU | ✓
+  ohpdhr0: AI=NEG (0.867) | Humano=NEU | ✗
+  oi0b85v: AI=NEU (0.575) | Humano=NEG | ✗
+  o7x8kxv: AI=NEG (0.784) | Humano=NEU | ✗
+  n9k9aj5: AI=NEG (0.568) | Humano=NEU | ✗
+  n2hqe12: AI=NEU (0.669) | Humano=NEG | ✗
+  nes0hlj: AI=NEU (0.886) | Humano=NEU | ✓
+  mvtqzrh: AI=NEG (0.568) | Humano=NEU | ✗
+  o8vi16r: AI=NEG (0.736) | Humano=NEU | ✗
+  oieca1w: AI=NEG (0.941) | Humano=NEG | ✓
+  mtpu7b2: AI=NEG (0.469) | Humano=NEU | ✗
+  n1zr5ed: AI=POS (0.845) | Humano=NEU | ✗
+  n5gwyx3: AI=NEG (0.613) | Humano=NEU | ✗
+  nthxrzl: AI=NEG (0.724) | Humano=NEU | ✗
+  nac4e9b: AI=POS (0.858) | Humano=NEU | ✗
+  nu06fl9: AI=NEG (0.900) | Humano=POS | ✗
+  ohokdn7: AI=NEU (0.591) | Humano=NEU | ✓
+  nzen4xx: AI=NEG (0.356) | Humano=NEG | ✓
+  oaofehg: AI=NEG (0.592) | Humano=POS | ✗
+  myjmr9e: AI=NEU (0.432) | Humano=NEU | ✓
+  n3hwfce: AI=NEU (0.697) | Humano=NEU | ✓
+  ol15lft: AI=NEG (0.626) | Humano=NEU | ✗
+  ndkclfv: AI=NEG (0.957) | Humano=NEU | ✗
+  o8fhhu2: AI=NEG (0.795) | Humano=NEU | ✗
+  nghg5u4: AI=NEU (0.596) | Humano=NEU | ✓
+  o4mq2p8: AI=NEG (0.839) | Humano=NEU | ✗
+  o38sayn: AI=NEG (0.592) | Humano=NEU | ✗
+  o96yaau: AI=NEG (0.639) | Humano=NEU | ✗
+  oce0agr: AI=NEU (0.823) | Humano=NEU | ✓
+  mzyghfc: AI=NEU (0.832) | Humano=NEU | ✓
+  o5nlwpm: AI=NEU (0.762) | Humano=NEU | ✓
+  oa5eesh: AI=POS (0.370) | Humano=NEU | ✗
+  mxdeeim: AI=NEG (0.728) | Humano=NEU | ✗
+  o3q854u: AI=NEG (0.863) | Humano=NEU | ✗
+  ojhkieg: AI=NEU (0.455) | Humano=NEG | ✗
+  och9zk0: AI=NEG (0.888) | Humano=NEU | ✗
+  nsujdl5: AI=NEG (0.688) | Humano=NEG | ✓
+  o2pb9r9: AI=NEG (0.735) | Humano=NEU | ✗
+  nh2qd4z: AI=NEG (0.695) | Humano=NEU | ✗
+  nj0ub2d: AI=NEU (0.800) | Humano=NEU | ✓
+  n0rt208: AI=POS (0.819) | Humano=POS | ✓
+  nzwqllz: AI=NEU (0.767) | Humano=NEU | ✓
+  o5yrzng: AI=NEG (0.824) | Humano=NEU | ✗
+  oft41zu: AI=NEG (0.901) | Humano=NEG | ✓
+  nxc41uv: AI=NEU (0.564) | Humano=NEU | ✓
+  obrkon8: AI=NEU (0.700) | Humano=NEU | ✓

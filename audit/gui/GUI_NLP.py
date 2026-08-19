@@ -7,7 +7,13 @@ import time
 import itertools
 import subprocess
 from datetime import datetime
-from Utilities import Config
+current_dir = os.path.dirname(os.path.abspath(__file__))  # .../Rakeddit/audit/gui
+audit_dir = os.path.dirname(current_dir)                  # .../Rakeddit/audit
+if audit_dir not in sys.path:
+    sys.path.insert(0, audit_dir)
+
+# Agora importa do core
+from core.Utilities import Config
 
 import threading
 import time
@@ -154,15 +160,16 @@ class NLPGUI:
             "4. Full Pipeline": "full"
         }
         arg = task_map.get(task, "full")
-        
+
         # 1. Ensure container is awake before running
         self._ensure_container_is_ready()
-        
+
         self._log(f"ℹ️ Starting task: {task} (arg: {arg}) - This might take a while...\n\n", "INFO")
-        
-        # 2. Working dir is /app/audit, so script name alone is sufficient
-        cmd = ["docker", "exec", self.container_name, "python", "Analytical_NLP_Engine.py", arg]
-        
+
+        # 2. O script agora está em core/Analytical_NLP_Engine.py
+        # O working dir ainda é /app/audit (definido no docker-compose.yml)
+        cmd = ["docker", "exec", self.container_name, "python", "core/Analytical_NLP_Engine.py", arg]
+
         # 3. Stream logs to console
         self._stream_docker_logs(cmd)
         
@@ -209,37 +216,66 @@ class NLPGUI:
         return process.returncode
 
     def _ensure_container_is_ready(self):
-        """Manage full Docker container lifecycle: create, start, or unpause as needed."""
+        """Manage full Docker container lifecycle with optional GPU fallback."""
         self._log("ℹ️ Checking for docker-compose.yml...", "DEBUG")
-        if not os.path.exists("docker-compose.yml"):
-            self._log("❌ 'docker-compose.yml' not found in current folder !!!", "ERROR")
+
+        # Procura o docker-compose.yml no diretório pai (audit/)
+        import os
+        possible_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker-compose.yml"),  # audit/
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "docker-compose.yml"),                   # gui/
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docker-compose.yml"),  # Rakeddit/
+            "docker-compose.yml",
+        ]
+
+        compose_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                compose_path = path
+                break
+
+        if compose_path is None:
+            self._log("❌ 'docker-compose.yml' not found in any expected location!", "ERROR")
             return False
+
+        self._log(f"✅ Found docker-compose.yml at: {compose_path}", "DEBUG")
+        os.chdir(os.path.dirname(compose_path))
+
+        # Verifica se o runtime NVIDIA está disponível
+        nvidia_available = self._check_nvidia_runtime()
+        
+        if nvidia_available:
+            self._log("✅ NVIDIA GPU runtime detected. Using GPU acceleration.", "INFO")
+            compose_cmd = ["docker", "compose", "up", "-d"]
+        else:
+            self._log("⚠️ NVIDIA GPU runtime NOT detected. Falling back to CPU mode.", "WARN")
+            self._log("   This will be slower for NLP tasks but should still work.", "INFO")
+            # Usa o docker-compose sem o bloco deploy (ou com runtime removido)
+            compose_cmd = ["docker", "compose", "up", "-d"]
+            # Nota: O usuário precisa ter removido o bloco 'deploy' do docker-compose.yml,
+            # ou usar um override com docker-compose.override.yml
 
         self._log(f"ℹ️ Sending 'docker inspect {self.container_name}'...", "DEBUG")
         try:
-            # Verifica se o contêiner existe (COM TIMEOUT DE 10 SEGUNDOS)
             inspect = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", self.container_name], 
+                ["docker", "inspect", "-f", "{{.State.Status}}", self.container_name],
                 capture_output=True, text=True, timeout=10
             )
-            
-            self._log(f"✅ 'docker inspect' response received. Code: {inspect.returncode}", "DEBUG")
-            
+
             if inspect.returncode != 0:
                 self._log(f"⚠️ Container '{self.container_name}' does not exist. Creating from image...", "WARN")
                 self._log("✅ Environment build initiated !!!", "INFO")
-                
+
                 print("\n" + "="*50)
-                # Em vez de um subprocess.run cego, usamos o nosso stream em tempo real
-                up_return_code = self._stream_docker_logs(["docker", "compose", "up", "-d"])
+                up_return_code = self._stream_docker_logs(compose_cmd)
                 print("="*50 + "\n")
-                
+
                 if up_return_code != 0:
                     self._log("❌ Failed to create container with docker compose.", "ERROR")
                     return False
                 self._log("✅ CONTAINER CREATED SUCCESSFULLY", "INFO")
                 return True
-            
+
             status = inspect.stdout.strip()
             self._log(f"ℹ️ Current state of container: {status.upper()}", "INFO")
 
@@ -254,63 +290,77 @@ class NLPGUI:
             else:
                 self._log(f"⚠️ Unexpected state ({status}). Attempting forced start...", "WARN")
                 subprocess.run(["docker", "start", self.container_name], check=False, timeout=15)
-                
+
             return True
 
-        except subprocess.TimeoutExpired as e:
-            self._log(f"❌ TIMEOUT: Docker took too long to respond!", "ERROR")
-            self._log(" Your Docker Desktop might have had a bad time in the background.", "ERROR")
-            self._log(" Restart docker and try again.", "ERROR")
+        except subprocess.TimeoutExpired:
+            self._log("❌ TIMEOUT: Docker took too long to respond!", "ERROR")
             return False
         except Exception as e:
             self._log(f"❌ Unexpected error during docker check: {e}", "ERROR")
             return False
 
-    def run_docker_process(self):
-        self._log("ℹ️ Received run request. Checking in on GPU...", "INFO")
-        
+    def _check_nvidia_runtime(self):
+        """Check if NVIDIA runtime is available on the system."""
         try:
-            is_ready = self._ensure_container_is_ready()
-            if not is_ready:
-                raise RuntimeError("❌ Docker environment initialization failed ")
-
-            self._log("---------------------", "SYSTEM")
-            self._log("✅ Running inference", "SYSTEM")
-            self._log("---------------------\n", "SYSTEM")
-            
-            process = subprocess.Popen(
-                ["docker", "exec", self.container_name, "python", "Analytical_NLP_Engine.py"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                encoding='utf-8',
-                errors='replace',
-                universal_newlines=True
+            # Tenta executar nvidia-smi
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=5
             )
+            if result.returncode == 0 and result.stdout.strip():
+                gpu_name = result.stdout.strip().split('\n')[0]
+                self._log(f"✅ Detected GPU: {gpu_name}", "DEBUG")
+                return True
+            return False
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+        
+    def run_docker_process(self):
+            self._log("ℹ️ Received run request. Checking in on GPU...", "INFO")
             
-            for line in process.stdout:
-                # Clean print: the internal script already formats its own output
-                print(line, end="")
+            try:
+                is_ready = self._ensure_container_is_ready()
+                if not is_ready:
+                    raise RuntimeError("❌ Docker environment initialization failed ")
+
+                self._log("---------------------", "SYSTEM")
+                self._log("✅ Running inference", "SYSTEM")
+                self._log("---------------------\n", "SYSTEM")
                 
-            process.wait()
-            
-            if process.returncode == 0:
-                self._log("✅ NLP PIPELINE COMPLETED", "INFO")
-            else:
-                self._log(f"❌ NLP script failed internally. Code: {process.returncode}", "ERROR")
+                process = subprocess.Popen(
+                    ["docker", "exec", self.container_name, "python", "Analytical_NLP_Engine.py"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    encoding='utf-8',
+                    errors='replace',
+                    universal_newlines=True
+                )
                 
-        except FileNotFoundError:
-            self._log("❌ 'docker' not found in PATH. Is Docker Desktop running?", "ERROR")
-        except subprocess.CalledProcessError as e:
-            self._log(f"❌ Docker command failed: {e}", "ERROR")
-        except Exception as e:
-            self._log(f"❌ Unexpected orchestrator error: {e}", "ERROR")
-        finally:
-            self.pause_container()
-            self.is_running = False
-            self.root.after(0, lambda: self.btn_run_all.config(state=tk.NORMAL))
-            self.root.after(0, lambda: self.btn_switch.config(state=tk.NORMAL))
+                for line in process.stdout:
+                    # Clean print: the internal script already formats its own output
+                    print(line, end="")
+                    
+                process.wait()
+                
+                if process.returncode == 0:
+                    self._log("✅ NLP PIPELINE COMPLETED", "INFO")
+                else:
+                    self._log(f"❌ NLP script failed internally. Code: {process.returncode}", "ERROR")
+                    
+            except FileNotFoundError:
+                self._log("❌ 'docker' not found in PATH. Is Docker Desktop running?", "ERROR")
+            except subprocess.CalledProcessError as e:
+                self._log(f"❌ Docker command failed: {e}", "ERROR")
+            except Exception as e:
+                self._log(f"❌ Unexpected orchestrator error: {e}", "ERROR")
+            finally:
+                self.pause_container()
+                self.is_running = False
+                self.root.after(0, lambda: self.btn_run_all.config(state=tk.NORMAL))
+                self.root.after(0, lambda: self.btn_switch.config(state=tk.NORMAL))
 
     def pause_container(self):
         try:

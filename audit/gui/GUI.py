@@ -4,8 +4,9 @@ import threading
 import sys
 import os
 import subprocess
-from Methods import AnalyticsEngine
-from Utilities import Config
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.Methods import AnalyticsEngine
+from core.Utilities import Config
 
 class RedirectText:
     def __init__(self, text_ctrl, root):

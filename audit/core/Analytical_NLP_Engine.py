@@ -4,20 +4,33 @@ import json
 import re
 import time
 import random
+import itertools
+import codecs
 import pandas as pd
 import numpy as np
 import threading
+from scipy.stats import spearmanr, kruskal, ks_2samp
+from Utilities import Config
+from Methods import AnalyticsEngine
 import matplotlib.pyplot as plt # type: ignore
 import matplotlib.ticker as mtick # type: ignore
 import seaborn as sns # type: ignore
 from wordcloud import WordCloud # type: ignore
 from bertopic import BERTopic # type: ignore
 from sentence_transformers import SentenceTransformer # type: ignore
-from cuml.manifold import UMAP # type: ignore
+try:
+    from cuml.manifold import UMAP # type: ignore
+    print("[INFO] ✅ Using GPU-accelerated UMAP (cuML)")
+    use_gpu_umap = True
+except (ImportError, ModuleNotFoundError):
+    from umap import UMAP # type: ignore
+    print("[INFO] ⚠️ cuML not available. Using CPU UMAP (umap-learn) - slower but works without GPU.")
+    use_gpu_umap = False
 from sklearn.feature_extraction.text import CountVectorizer
 from scipy.stats import spearmanr, entropy, kruskal, ks_2samp
 
 # Project config and engine
+# Como o script está em core/, e Utilities.py está na mesma pasta:
 from Utilities import Config
 from Methods import AnalyticsEngine
 
@@ -265,7 +278,13 @@ class NLPEngine:
         random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
 
-        umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=seed, low_memory=False, n_jobs=-1)
+        # UMAP with fallback
+        if use_gpu_umap:
+            umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, 
+                            metric='cosine', random_state=seed, low_memory=False, n_jobs=-1)
+        else:
+            umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, 
+                            metric='cosine', random_state=seed, n_jobs=-1)
         embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         vectorizer_model = CountVectorizer(
             stop_words=self.pt_stopwords,
@@ -556,28 +575,85 @@ class NLPEngine:
         spinner_val.stop("✅ Valence matrices processed and exported.")
         print("\n[SYSTEM] SAVING OUTPUT FILES\n")
 
-    def run_liwc_analysis(self, df_comments, dic_path="audit/Brazilian_Portuguese_LIWC2015_dictionary.dic"):
-        import liwc # type: ignore
-        import codecs
+    def run_liwc_analysis(self, df_comments, dic_path=None):
+        
         print("[SYSTEM] LIWC ANALYSIS")
-        if not os.path.exists(dic_path): return
+        
+        # ============================================================
+        # LOCALIZAÇÃO DO DICIONÁRIO (com fallback)
+        # ============================================================
+        # Detecta o diretório audit/ (onde core/ e resources/ estão)
+        current_dir = os.path.dirname(os.path.abspath(__file__))          # .../audit/core
+        audit_dir = os.path.dirname(current_dir)                          # .../audit
+        
+        # Lista de possíveis localizações do dicionário (prioridade)
+        possible_paths = [
+            os.path.join(audit_dir, "resources", "Brazilian_Portuguese_LIWC2015_dictionary.dic"),  # novo local
+            os.path.join(audit_dir, "Brazilian_Portuguese_LIWC2015_dictionary.dic"),               # antigo local (raiz)
+            "Brazilian_Portuguese_LIWC2015_dictionary.dic",                                        # fallback local
+        ]
+        
+        # Se o usuário passou um caminho específico, usa ele
+        if dic_path is not None:
+            possible_paths.insert(0, dic_path)
+        
+        # Procura o primeiro caminho que existe
+        found_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                found_path = path
+                break
+        
+        if found_path is None:
+            print(f"[WARN] LIWC dictionary not found!")
+            print(f"       Searched: {possible_paths}")
+            print(f"       Please place the dictionary in audit/resources/")
+            return
+        
+        dic_path = found_path
+        print(f"[INFO] ✅ LIWC dictionary loaded from: {dic_path}")
+        
+        # ============================================================
+        # CARREGAMENTO DO DICIONÁRIO
+        # ============================================================
+        import liwc  # type: ignore
+
+        temp_dic = os.path.join(self.output_dir, "temp_cleaned_liwc.dic")
+        try:
+            with codecs.open(dic_path, 'r', encoding='utf-8-sig', errors='ignore') as f: # type: ignore
+                content = f.read()
+            content = content.replace('\r\n', '\n').replace('\r', '\n').strip()
+            if not content.startswith('%'):
+                content = '%\n' + content
+            with open(temp_dic, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            spinner_liwc.stop(f"❌ Error while sanitizing dictionary: {e}")
+            return
+
+        parse, category_names = liwc.load_token_parser(temp_dic)
+        if os.path.exists(temp_dic):
+            os.remove(temp_dic)
 
         spinner_liwc = ConsoleSpinner("📚 Loading and sanitizing LIWC Dictionary...")
         spinner_liwc.start()
 
         temp_dic = os.path.join(self.output_dir, "temp_cleaned_liwc.dic")
         try:
-            with codecs.open(dic_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            with codecs.open(dic_path, 'r', encoding='utf-8-sig', errors='ignore') as f: # type: ignore
                 content = f.read()
             content = content.replace('\r\n', '\n').replace('\r', '\n').strip()
-            if not content.startswith('%'): content = '%\n' + content
-            with open(temp_dic, 'w', encoding='utf-8') as f: f.write(content)
+            if not content.startswith('%'):
+                content = '%\n' + content
+            with open(temp_dic, 'w', encoding='utf-8') as f:
+                f.write(content)
         except Exception as e:
             spinner_liwc.stop(f"❌ Error while sanitizing dictionary: {e}")
             return
 
         parse, category_names = liwc.load_token_parser(temp_dic)
-        if os.path.exists(temp_dic): os.remove(temp_dic)
+        if os.path.exists(temp_dic):
+            os.remove(temp_dic)
 
         concept_map = {
             'anger': ['anger', 'ira', 'raiva', '53'],
@@ -623,7 +699,8 @@ class NLPEngine:
                         for token in tokens:
                             for cat in parse(token):
                                 for concept, real_cat in actual_categories.items():
-                                    if cat == real_cat: counts[concept] += 1
+                                    if cat == real_cat:
+                                        counts[concept] += 1
                         perc_counts = {c: (v / total_words) * 100 for c, v in counts.items()}
                     else:
                         perc_counts = {c: 0.0 for c in target_concepts}
@@ -651,7 +728,8 @@ class NLPEngine:
                 axes[i].set_ylabel('Mean Frequency (%)', fontsize=14, fontweight='bold')
                 axes[i].set_xlabel('Negative Sentiment Quartile', fontsize=14, fontweight='bold')
                 axes[i].tick_params(axis='both', which='major', labelsize=14)
-            for j in range(i + 1, len(axes)): fig.delaxes(axes[j])
+            for j in range(i + 1, len(axes)):
+                fig.delaxes(axes[j])
             plt.tight_layout(pad=3.0)
             plt.savefig(os.path.join(self.output_dir, f"Fig_LIWC_Categories_Grid_{filename_prefix}.pdf"), dpi=300)
             plt.close()
@@ -745,7 +823,6 @@ class NLPEngine:
         gc.collect()
         plt.close('all')
         print("[SYSTEM] COMPLETED")
-
 
 if __name__ == "__main__":
     import sys

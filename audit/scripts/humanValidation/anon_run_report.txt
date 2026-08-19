@@ -1,0 +1,153 @@
+
+[INFO] Using random salt: ****************... (unique per run)
+
+======================================================================
+  DATASET ANONYMIZATION
+=======================
+
+Start: 2026-08-19 17:45:24
+  Input:  INFERRED_MULTIMODAL_FINAL.jsonl
+  Output: ANONIMIZED_INFERRED_MULTIMODAL_FINAL.jsonl
+  Salt:   ****************... (random, not saved)
+=================================================
+
+[DEBUG] Input file size: 475.76 MB
+
+[STEP 1] Collecting unique usernames...
+  [DEBUG] Lines read: 100,000 | Unique users: 24,700 | Elapsed: 0.5s
+  [DEBUG] Lines read: 200,000 | Unique users: 42,135 | Elapsed: 1.1s
+  [DEBUG] Lines read: 300,000 | Unique users: 52,951 | Elapsed: 1.6s
+  [DEBUG] Lines read: 400,000 | Unique users: 63,169 | Elapsed: 2.2s
+  [DEBUG] Lines read: 500,000 | Unique users: 73,575 | Elapsed: 2.8s
+  [DEBUG] Lines read: 600,000 | Unique users: 77,946 | Elapsed: 3.3s
+  [DEBUG] Lines read: 700,000 | Unique users: 85,661 | Elapsed: 3.9s
+  [DEBUG] Lines read: 800,000 | Unique users: 93,424 | Elapsed: 4.4s
+  [DEBUG] Lines read: 900,000 | Unique users: 103,877 | Elapsed: 4.9s
+  [DEBUG] Lines read: 1,000,000 | Unique users: 111,814 | Elapsed: 5.5s
+  [DEBUG] Lines read: 1,100,000 | Unique users: 118,325 | Elapsed: 6.0s
+
+[DEBUG] Step 1 completed in 6.0s
+[DEBUG] Total lines read: 1,100,237
+[DEBUG] Skipped (invalid JSON): 0
+[DEBUG] Metadata footers skipped: 1
+[DEBUG] Users marked [deleted]: 81,545
+[DEBUG] Users marked [removed]: 0
+[DEBUG] Records without author: 0
+[DEBUG] Unique users found: 118,331
+[DEBUG] Sample usernames: ['*********', '*********', '********', '*********', '********']
+
+[STEP 2] Generating deterministic hashes...
+  [DEBUG] Hashes generated: 50,000/118,331
+  [DEBUG] Hashes generated: 100,000/118,331
+[DEBUG] Step 2 completed in 0.1s
+[DEBUG] Hashes generated for 118,331 users
+[DEBUG] OK: No hash collisions detected.
+
+[STEP 3] Replacing usernames and writing output...
+  [DEBUG] Processed: 100,000 | Anonymized: 94,455 | Progress: 9.1% | Elapsed: 1.2s
+  [DEBUG] Processed: 200,000 | Anonymized: 187,751 | Progress: 18.2% | Elapsed: 2.5s
+  [DEBUG] Processed: 300,000 | Anonymized: 279,242 | Progress: 27.3% | Elapsed: 3.8s
+  [DEBUG] Processed: 400,000 | Anonymized: 373,129 | Progress: 36.4% | Elapsed: 5.1s
+  [DEBUG] Processed: 500,000 | Anonymized: 465,345 | Progress: 45.4% | Elapsed: 6.4s
+  [DEBUG] Processed: 600,000 | Anonymized: 557,084 | Progress: 54.5% | Elapsed: 7.7s
+  [DEBUG] Processed: 700,000 | Anonymized: 650,287 | Progress: 63.6% | Elapsed: 9.0s
+  [DEBUG] Processed: 800,000 | Anonymized: 744,737 | Progress: 72.7% | Elapsed: 10.2s
+  [DEBUG] Processed: 900,000 | Anonymized: 835,885 | Progress: 81.8% | Elapsed: 11.5s
+  [DEBUG] Processed: 1,000,000 | Anonymized: 929,281 | Progress: 90.9% | Elapsed: 12.8s
+  [DEBUG] Processed: 1,100,000 | Anonymized: 1,018,474 | Progress: 100.0% | Elapsed: 14.0s
+
+[DEBUG] Step 3 completed in 14.0s
+[DEBUG] Records processed: 1,100,236
+[DEBUG] Users anonymized: 1,018,691
+[DEBUG] Users preserved ([deleted], [removed]): 81,545
+[DEBUG] Unmapped users: 0
+[DEBUG] Sample replacements:
+    *********... -> e9e357ad32b6bc6a...
+    *********... -> 38841ce3c515426b...
+    *********... -> e9e357ad32b6bc6a...
+    ********... -> 0d7e6074445c9f15...
+    *********... -> a4458c863836d591...
+
+======================================================================
+  FINAL ANONYMIZATION REPORT
+============================
+
+Total time:                    20.2s
+  Input file:                    INFERRED_MULTIMODAL_FINAL.jsonl
+    Size:                       475.76 MB
+    Total lines:                1,100,237
+  Output file:                   ANONIMIZED_INFERRED_MULTIMODAL_FINAL.jsonl
+    Size:                       525.46 MB
+    Records processed:          1,100,236
+  Unique users found:            118,331
+  Users anonymized:              1,018,691
+  Users preserved:               81,545
+  Skipped (invalid JSON):        0
+  Metadata footers preserved:    1
+==================================
+
+[STEP 4] Clearing sensitive data from memory...
+[DEBUG] User mapping cleared from memory.
+
+[SUCCESS] Anonymization completed successfully!
+[SUCCESS] 1,018,691 users anonymized.
+[SUCCESS] No mapping file was saved — reversal is impossible.
+
+[INFO] The salt used for this run was random and not saved.
+[INFO] This dataset cannot be reversed to original usernames.
+[INFO] The anonymized dataset is safe for public release.
+
+======================================================================
+  ANONYMIZATION VALIDATION REPORT
+======================================================================
+  Start: 2026-08-19 17:50:14
+  Original:   INFERRED_MULTIMODAL_FINAL.jsonl
+  Anonymized: ANONIMIZED_INFERRED_MULTIMODAL_FINAL.jsonl
+======================================================================
+
+[DEBUG] Original file size:   475.76 MB
+[DEBUG] Anonymized file size: 525.46 MB
+[DEBUG] Size difference:      +49.70 MB (+10.45%)
+
+[PASS 1] Counting lines and basic stats...
+[DEBUG] Original lines:   1,100,237
+[DEBUG] Anonymized lines: 1,100,237
+[DEBUG] Line count match: ✅ YES
+
+[PASS 2] Checking field preservation...
+[DEBUG] Original fields:  ['ai_analysis', 'author', 'body', 'depth', 'id', 'is_valid_text', 'metadata_score', 'parent_id', 'post_id', 'subreddit', 'timestamp', 'type']
+[DEBUG] Anonymized fields: ['ai_analysis', 'author', 'body', 'depth', 'id', 'is_valid_text', 'metadata_score', 'parent_id', 'post_id', 'subreddit', 'timestamp', 'type']
+[DEBUG] All expected fields present: ✅ YES
+
+[PASS 3] Checking username replacement consistency...
+[DEBUG] Original unique usernames (sample): 3812
+[DEBUG] Anonymized unique usernames (sample): 3812
+[DEBUG] Sample usernames that look like SHA-256 hashes: 100/100
+[DEBUG] Username replacement appears consistent: ✅ YES
+
+[PASS 4] Checking cross-field consistency...
+[DEBUG] Comments:   Original: 1,090,277 | Anonymized: 1,090,277 | Match: ✅
+[DEBUG] Post headers: Original: 9,959 | Anonymized: 9,959 | Match: ✅
+[DEBUG] Metadata:     Original: 1 | Anonymized: 1 | Match: ✅
+
+[PASS 5] Comparing sample comments (non-sensitive fields)...
+[DEBUG] Sample size: 965 comments
+[DEBUG] ID set match: ✅ YES
+[DEBUG] Non-sensitive field match rate: 100.0%
+[DEBUG] Field preservation: ✅ SUCCESS
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+  Line count matches: ✅ PASS
+  All expected fields present: ✅ PASS
+  No fields removed: ✅ PASS
+  Comment count matches: ✅ PASS
+  Post header count matches: ✅ PASS
+  Metadata preserved: ✅ PASS
+  IDs preserved: ✅ PASS
+
+======================================================================
+  ✅ VALIDATION PASSED — Dataset structure is fully preserved.
+  ✅ The anonymization did not affect data integrity.
+======================================================================

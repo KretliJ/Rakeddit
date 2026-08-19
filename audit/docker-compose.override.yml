@@ -1,0 +1,3 @@
+services:
+  nlp-engine:
+    deploy: {}

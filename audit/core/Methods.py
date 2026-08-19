@@ -260,7 +260,7 @@ class AnalyticsEngine:
         """Generates raw data for tables and returns it as a string."""
         import os
         import pandas as pd
-        from Utilities import Config
+        from audit.core.Utilities import Config
         
         df_cascades = self._prepare_quartiles(interactive_only=interactive_only)
         lines = []
@@ -826,7 +826,7 @@ class AnalyticsEngine:
         import pandas as pd
         from collections import defaultdict
         import os
-        from Utilities import Config
+        from audit.core.Utilities import Config
         
         print("[INFO] ℹ️ Generating User Homophily Analysis (UQ1-UQ4)...")
         folder_suffix = "_Interactive_Cascades" if interactive_only else ""
@@ -965,7 +965,7 @@ class AnalyticsEngine:
         import networkx as nx
         import matplotlib.pyplot as plt # type: ignore
         import os
-        from Utilities import Config
+        from audit.core.Utilities import Config
         
         output_dir = os.path.join(Config.RESULTS_DIR)
         os.makedirs(output_dir, exist_ok=True)
@@ -1016,7 +1016,7 @@ class AnalyticsEngine:
         import matplotlib.pyplot as plt # type: ignore
         import seaborn as sns # type: ignore
         from sklearn.metrics import confusion_matrix
-        from Utilities import Config
+        from audit.core.Utilities import Config
 
         print("[INFO] ℹ️ Running Multimodal vs. Blind Ablation Matrix Analysis...")
         output_dir = os.path.join(Config.RESULTS_DIR)

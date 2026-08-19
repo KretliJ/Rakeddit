@@ -10,7 +10,7 @@ import numpy as np
 # Sobe um nível para importar o Utilities.py (que está na pasta audit)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from Utilities import Config
+from audit.core.Utilities import Config
 
 def main():
     cache_path = Config.CACHE_PATH

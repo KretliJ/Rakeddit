@@ -5,13 +5,13 @@ class Config:
     # 1. Deteta dinamicamente o diretório base do projeto (Agnóstico a SO)
     # Como o Utilities.py está dentro da pasta 'audit', subimos um nível para encontrar a raiz
     CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    BASE_DIR = os.path.dirname(CURRENT_DIR)
+    BASE_DIR = os.path.dirname(os.path.dirname(CURRENT_DIR)) 
 
     # 2. File Paths absolutos construídos dinamicamente (Usa \ no Windows e / no Docker automaticamente)
     MULTIMODAL_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "INFERRED_MULTIMODAL_FINAL.jsonl")
     CACHE_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "cascades_dataframe_cache.parquet")
     BLIND_PATH = os.path.join(BASE_DIR, "DATA", "4-inferred", "INFERRED_BLIND_DATASET.jsonl")
-    RESULTS_DIR = os.path.join(CURRENT_DIR, "results", "unified_analytics")
+    RESULTS_DIR = os.path.join(CURRENT_DIR, "..", "results", "unified_analytics")
     
     # Taxonomies
     VALID_SENTIMENTS = {'POSITIVE', 'NEUTRAL', 'NEGATIVE'}

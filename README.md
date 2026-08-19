@@ -52,7 +52,9 @@ Computes behavioral features, user structures, and validation curves across diff
 
 ### [ USAGE ]
 
-#### [Functions](functions.md)
+#### [Raking documentation](gitdocs/functions.md)
+#### [Analytics Documentation](gitdocs/audit_functions.md)
+
 
 ### [ REQUIREMENTS & STARTING UP ]
 
@@ -61,7 +63,7 @@ Computes behavioral features, user structures, and validation curves across diff
 * **OS:** Windows or Linux (Debian-based distributions recommended for Python integration).
 * **Python:** Version 3.11 or higher.
 * **Backend:** [Ollama](https://ollama.com/) must be installed and running locally as a background service.
-* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM or higher) for stable multimodal parsing and NLP inference.
+* **Hardware:** A dedicated GPU is highly recommended (e.g., 8GB VRAM or higher) for stable multimodal parsing and NLP inference. The system will fall back to CPU if no GPU is available, but performance will be significantly slower.
 
 #### 2. Environment Setup
 
@@ -88,17 +90,18 @@ ollama pull qwen3-vl:2b-instruct
 
 Ensure your `config.ini` is set up correctly in the root directory. Do not use quotes around the model names, as the strict protocol validation will reject the payload with an HTTP 400 Bad Request.
 
-```Ini,
+```Ini
 [HEADERS]
 User-Agent = Research_Gentle_Harvesting_With_Jitter (contact: [YOUR EMAIL])
 # CHANGE THIS TO REFLECT YOUR USE CASE
 
 [PATHS]
 # CHANGE BASE_PATH IF YOU WANT TO DUMP FILES ELSEWHERE
-BASE_PATH = ./DATA/json_dumps/
-AGGREGATES_PATH = ./DATA/aggregates/
-MEDIA_PATH = ./DATA/temp_media/
-MULTIMODAL_PATH = ./DATA/vision_processing/
+BASE_PATH = ./DATA/1-json_dumps/
+AGGREGATES_PATH = ./DATA/2-aggregates/
+MEDIA_PATH = ./DATA/3-temp_media/
+MULTIMODAL_PATH = ./DATA/3-vision_processing/
+INFERRED_PATH = ./DATA/4-inferred/
 LOGGING_PATH = ./logging/
 
 [MODELS]
@@ -109,51 +112,68 @@ IMAGE_READER = qwen3-vl:2b-instruct
 
 #### 5. Execution
 
-With backend running and dependencies installed, trigger the orchestrator with:
+With the backend running and dependencies installed, trigger the orchestrator with:
 
 ```bash
 python main.py
 ```
 
+For NLP and psycholinguistics analysis with GPU acceleration, use the GUI panel:
+
+```bash
+cd audit
+python gui/GUI_NLP.py
+```
+
 ### [ VERSION HISTORY ]
 
-* Version 4.4.2 (Human Validation Framework Update)
+* Version 4.4.0 (Camera-Ready Restructuring & Update)
+  * Reorganized the entire `audit/` directory structure for lower cognitive load:
+    * `core/` — Main engines (Utilities, Methods, Analytical_NLP_Engine, dictionary)
+    * `gui/` — Graphical user interfaces (GUI.py, GUI_NLP.py)
+    * `scripts/` — Utility scripts and human validation tools
+    * `resources/` — Static resources (LIWC dictionary)
+  * Moved documentation (`functions.md`, `audit_functions.md`, `ATTRIBUTION.md`) to `gitdocs/`
+  * Added GPU fallback support (CPU via umap-learn) when NVIDIA CUDA is unavailable
+  * Added dataset anonymization tools with irreversible SHA-256 hashing
+  * Added human validation framework for sentiment classifier evaluation
+  * Fixed LIWC dictionary path resolution and import errors
+  * Updated all import paths to reflect the new module structure
+
+<details>
+<summary>Version History (Earlier Releases)</summary>
+
+* Version 4.3.0 (Human Validation Framework Update)
   * Introduced tools for human validation of the dataset in audit/humanValidation.
-  * `sample_comments.py` collects 100 random comments from each negativity quartile.
-  * `humman_annotation.py` presents a CLI for annotating comments.
+  * `sample_comments.py` collects random comments from each negativity quartile.
+  * `human_annotation.py` presents a CLI for annotating comments.
   * `compare_labels.py` compares model annotation against human ground truth.
   * `check_cascade_stats.py` and `sample_comments.py` generate additional data on quartiles 3 and 4 comparison.
-<details>
-<summary>Version History  </summary>
-
-* Version 4.3.0 (Docker & Modular NLP Update)
-  * Introduced `GUI_NLP.py` for modular, GPU-accelerated NLP and Psycholinguistics pipeline execution.
-  * Integrated Docker containerization with automatic state management and dynamic volume mapping.
-  * Resolved Pandas Series typing conflicts and deadlock issues in the BERTopic and WordCloud pipeline.
-  * Isolated LIWC processing for standalone execution, improving inference cache efficiency.
-* Version 4.2.2 (Stability)
-  * Improved text validation
-  * Refactored homophilia method
-  * Refactored reports
+* Version 4.2.1 (Bugfix)
+  * Resolved Pandas Series typing conflicts in BERTopic pipeline
+  * Fixed deadlock issues in WordCloud generation
+  * Improved LIWC dictionary loading and sanitization
 * Version 4.2.0 (NLP Engine Update)
   * BERTopic and wordcloud analysis integration
+  * LIWC psycholinguistic analysis pipeline
+  * Semantic valence analysis for quartile comparisons
 * Version 4.1.0 (Unified Analysis Update)
   * Unified legacy analytic pipelines into an optimized MVC model (GUI.py, Methods.py, Utilities.py).
   * Implemented structured multi-folder routing based on user-selected grouping strategies.
   * Engineered multi-threaded "Run All" pipeline runner to optimize bulk processing loops.
-  * Standardized file outputs to PDF
+  * Standardized file outputs to PDF.
 * Version 3.1.0 (Analysis Update)
-  * Final analytics pipeline build
-  * Replaced CSVs with RAM DataFrames
-  * Direct export to PNG & PDF
-  * Improved resume state to main pipeline in main.py
+  * Final analytics pipeline build.
+  * Replaced CSVs with RAM DataFrames.
+  * Direct export to PNG & PDF.
+  * Improved resume state to main pipeline in main.py.
 * Version 2.2.0 (Thesis Milestone Update)
-  * Analytics GUI automatic categories (4 sociologic types)
-  * Infer engine with batching and resume inteligente
-  * GNN GraphSAGE with structural features (degree, time, depth)
-  * Interactive orchestrator menu (6 operation modes)
+  * Analytics GUI automatic categories (4 sociologic types).
+  * Infer engine with batching and resume inteligente.
+  * GNN GraphSAGE with structural features (degree, time, depth).
+  * Interactive orchestrator menu (6 operation modes).
 * Version 2.0.0 (Graph Structure & Telemetry Update)
-  * Objective changes made on main project pipeline
+  * Objective changes made on main project pipeline.
   * Introduced native depth tracking and post_header anchoring (depth: 0) for advanced cascade analysis.
   * Preserved graph integrity by sanitizing [AutoModerator] and [deleted] nodes while maintaining their parent_id links.
   * Implemented is_valid_text flags for NLP token optimization.
@@ -165,21 +185,23 @@ python main.py
   * Refactored main.py into an Object-Oriented pipeline.
   * Integrated native Python logging for robust error tracking and monitoring.
   * Separated POST CONTEXT from CONVERSATION HISTORY in LLM prompts to fix orphan comment hallucinations.
-* Version 1.2.1 (model adjustment)
-  * Testing how local inference works around toxicity detection
-  * Migrate from llama-3 8B Q4_0 to Q8_0
-  * Added a script to extract hallucinated rows
-* Version: 1.2.0 (Multimodal Update)
-  * off-grid local AI inference (Ollama integration).
+* Version 1.2.1 (Model Adjustment)
+  * Testing how local inference works around toxicity detection.
+  * Migrate from llama-3 8B Q4_0 to Q8_0.
+  * Added a script to extract hallucinated rows.
+* Version 1.2.0 (Multimodal Update)
+  * Off-grid local AI inference (Ollama integration).
   * Media interceptor & visual context enrichment for images/GIFs.
   * Context-aware DFS dynamic prompt orchestration.
-* Version: 1.1.0
-  * Tidy Data format
-  * DFS processing of raw json endpoint responses
+* Version 1.1.0
+  * Tidy Data format.
+  * DFS processing of raw JSON endpoint responses.
 
 </details>
 
 ### [ DISCLAIMER ]
+
+#### [Attribution](gitdocs/ATTRIBUTION.md)
 
 Rakeddit and related modules are provided "as is" for educational, scientific research, and result reproduction purposes only.
 

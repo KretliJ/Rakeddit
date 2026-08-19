@@ -15,6 +15,10 @@ matplotlib
 seaborn
 wordcloud
 
-# Stats & ML Utilities (Garantia de versão)
+# Stats & ML Utilities
 scikit-learn
 scipy
+pandas
+
+# GUI
+tkinter
