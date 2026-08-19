@@ -199,6 +199,19 @@ python gui/GUI_NLP.py
 
 </details>
 
+### [ DATASET AVAILABILITY ]
+
+The fully anonymized dataset used in this study is publicly available for download. 
+Usernames have been replaced with irreversible SHA-256 hashes using a random salt, 
+making re-identification impossible while preserving interaction-network structure.
+
+- **Dataset:** 1,071,383 comments, 71,281 cascades, 118,330 unique users
+- **Format:** JSONL
+- **Size:** ~525 MB (~137 MB compressed)
+
+> **Validation:** The anonymization process preserved all structural, temporal, and textual fields. 
+> A full validation report is provided with the released dataset (`anon_run_report.txt`).
+
 ### [ DISCLAIMER ]
 
 #### [Attribution](gitdocs/ATTRIBUTION.md)
