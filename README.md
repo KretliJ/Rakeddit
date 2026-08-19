@@ -9,11 +9,10 @@ Rakeddit is a multi-stage Python pipeline designed for high-integrity behavioral
 
 WARNING:
 
-* Strictly for research purposes. This is designed to realistically collect up to 1,000,000 data points.
+* Strictly for research purposes. Designed to realistically collect up to 1,000,000 data points.
 * This is designed to run over extended periods of time.
 * All data collection follows a gentle approach to respect platform infrastructure and privacy guidelines.
   * This will not collect email, phone numbers, real names, social security numbers, or check when you last used the bathroom.
-* This caused my IP to get a long-term cooldown from reddit's servers, so use it with caution (or not, if you expect to finish in under a week).
 
 ### [ PIPELINE STAGES ]
 
