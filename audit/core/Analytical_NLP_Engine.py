@@ -11,7 +11,7 @@ import numpy as np
 import threading
 from scipy.stats import spearmanr, kruskal, ks_2samp
 from Utilities import Config
-from Methods import AnalyticsEngine
+from Methods_2 import AnalyticsEngine
 import matplotlib.pyplot as plt # type: ignore
 import matplotlib.ticker as mtick # type: ignore
 import seaborn as sns # type: ignore
@@ -29,11 +29,6 @@ except (ImportError, ModuleNotFoundError):
 from sklearn.feature_extraction.text import CountVectorizer
 from scipy.stats import spearmanr, entropy, kruskal, ks_2samp
 
-# Project config and engine
-# Como o script está em core/, e Utilities.py está na mesma pasta:
-from Utilities import Config
-from Methods import AnalyticsEngine
-
 # Stopword dictionaries
 from stopwordsiso import stopwords as get_stopwords # type: ignore
 from dictionary import CUSTOM_BR, DOMAIN_STOPWORDS
@@ -48,9 +43,8 @@ class ConsoleSpinner:
 
     def spin(self):
         while self.running:
-            # O \r e o flush=True que configuramos no Tkinter farão a mágica aqui
             print(f"\r{self.message} {next(self.spinner)}   ", end="", flush=True)
-            time.sleep(0.15) # Velocidade do giro
+            time.sleep(0.15)
 
     def start(self):
         self.running = True
@@ -61,7 +55,6 @@ class ConsoleSpinner:
         self.running = False
         if self.thread:
             self.thread.join()
-        # Limpa a linha e mostra a mensagem de sucesso
         print(f"\r{self.message} {success_message}        \n", end="", flush=True)
         
 class NLPEngine:
@@ -71,11 +64,9 @@ class NLPEngine:
         self.output_dir = os.path.join(Config.RESULTS_DIR, "NLP_Analysis")
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # ISO academic lexicon (PT + EN/ES to purge foreign noise)
         academic_stopwords_pt = get_stopwords(["pt"])
         academic_stopwords_en = get_stopwords(["en", "es"])
 
-        # Reddit structural noise: bots, frequent usernames, artifacts
         reddit_noise = {
             'sound', 'message', 'redact', 'comments', 'black',
             'sneakpeekbot', 'np', 'content', 'isjesusagain',
@@ -85,11 +76,9 @@ class NLPEngine:
         self.pt_stopwords = list(set(academic_stopwords_pt) | set(academic_stopwords_en) | set(CUSTOM_BR) | set(DOMAIN_STOPWORDS) | reddit_noise)
         print(f"[INFO] ℹ️  Engine initialized with {len(self.pt_stopwords):,} combined stopwords (PT+EN+ES+Custom+Noise).")
 
-        # --- ARQUIVOS MESTRES CENTRALIZADORES ---
         self.master_stats_file = os.path.join(self.output_dir, "Master_NLP_Statistics.txt")
         self.master_latex_file = os.path.join(self.output_dir, "Master_NLP_LaTeX_Tables.txt")
         
-        # Limpa execuções antigas para não criar cópias gigantes do mesmo dado
         with open(self.master_stats_file, 'w', encoding='utf-8') as f:
             f.write("="*80 + "\n")
             f.write("                 MASTER NLP STATISTICAL REPORT\n")
@@ -181,7 +170,7 @@ class NLPEngine:
 
         df_comments = pd.DataFrame(data_rows)
 
-        # Inject User_Type (homophily) at root level for BERTopic and LIWC reports
+        # Inject User_Type (homophily) using robust qcut logic
         engine = AnalyticsEngine()
         engine.load_or_extract_data()
         user_data = []
@@ -189,7 +178,12 @@ class NLPEngine:
             if counts['total'] > 0:
                 user_data.append({'Author': author_name, 'perc_negative': (counts['negative'] / counts['total']) * 100})
         df_users = pd.DataFrame(user_data)
-        df_users['User_Type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+        
+        try:
+            df_users['User_Type'] = pd.qcut(df_users['perc_negative'], q=4, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'], duplicates='drop')
+        except ValueError:
+            df_users['User_Type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+            
         df_comments = df_comments.merge(df_users[['Author', 'User_Type']], on='Author', how='left')
 
         print(f"\n[INFO] ✅ Done. {len(df_comments):,} messages structured in DataFrame in {(time.time() - start_load):.2f}s.")
@@ -201,9 +195,9 @@ class NLPEngine:
             print(f"[INFO] ℹ️  NLP CACHE FOUND. Loading instantly from: {cache_file}")
             df_comments = pd.read_parquet(cache_file)
 
-            # PATCH: Auto-update legacy caches missing User_Type
+            # PATCH: Auto-update legacy caches missing User_Type or forcing qcut alignment
             if 'User_Type' not in df_comments.columns:
-                print("[PATCH] Legacy cache detected. Injecting 'User_Type' to preserve inferred topics...")
+                print("[PATCH] Legacy cache detected. Injecting balanced 'User_Type'...")
                 engine = AnalyticsEngine()
                 engine.load_or_extract_data()
                 user_data = []
@@ -211,7 +205,12 @@ class NLPEngine:
                     if counts['total'] > 0:
                         user_data.append({'Author': author_name, 'perc_negative': (counts['negative'] / counts['total']) * 100})
                 df_users = pd.DataFrame(user_data)
-                df_users['User_Type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+                
+                try:
+                    df_users['User_Type'] = pd.qcut(df_users['perc_negative'], q=4, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'], duplicates='drop')
+                except ValueError:
+                    df_users['User_Type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+                    
                 df_comments = df_comments.merge(df_users[['Author', 'User_Type']], on='Author', how='left')
 
                 print("[PATCH] Writing updated cache to disk...")
@@ -245,7 +244,6 @@ class NLPEngine:
             if is_empty:
                 continue
 
-            # Guard: filter out any NaN/float values before joining
             text_data = [v for v in (texts.tolist() if hasattr(texts, 'tolist') else texts) if isinstance(v, str)]
             if not text_data:
                 continue
@@ -272,13 +270,11 @@ class NLPEngine:
         docs = df_comments['Body'].tolist()
         classes_cascades = df_comments['Quartile'].tolist()
 
-        # Reproducibility seeds
         seed = 42
         np.random.seed(seed)
         random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
 
-        # UMAP with fallback
         if use_gpu_umap:
             umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, 
                             metric='cosine', random_state=seed, low_memory=False, n_jobs=-1)
@@ -291,7 +287,6 @@ class NLPEngine:
             token_pattern=r'\b[a-zA-ZÀ-ÿ]{2,}\b'
         )
 
-        # verbose=False para não atropelar o nosso spinner
         topic_model = BERTopic(embedding_model=embedding_model, vectorizer_model=vectorizer_model, umap_model=umap_model, language="multilingual", calculate_probabilities=False, verbose=False)
 
         spinner_bert = ConsoleSpinner(f"🤖 Running UMAP/Transformer inference on {len(docs):,} documents...")
@@ -345,11 +340,9 @@ class NLPEngine:
                 f.write(f"=== {file_name.replace('.txt', '')} ===\n")
                 f.write(latex_text + "\n")
 
-        # Export topics per cascade quartile (Q1–Q4)
         topics_per_cascade = topic_model.topics_per_class(docs, classes=classes_cascades)
         export_latex_topics(topics_per_cascade, classes_cascades, "Top10_Topics_Per_Quartile_LaTeX.txt")
 
-        # Export topics per user quartile (UQ1–UQ4)
         classes_users = df_comments['User_Type'].astype(str).replace('nan', 'Unclassified').tolist()
         topics_per_user = topic_model.topics_per_class(docs, classes=classes_users)
         valid_user_classes = [c for c in set(classes_users) if c.startswith('UQ')]
@@ -375,7 +368,6 @@ class NLPEngine:
                 return (series - series.min()) / (series.max() - series.min())
             return series
 
-        # Cascade entropy
         df_cascades_entropy = df_valid.groupby('Cascade_ID')['Topic'].agg(
             lambda x: entropy(x.value_counts(normalize=True).values, base=np.e)
         ).reset_index()
@@ -385,7 +377,6 @@ class NLPEngine:
         cascade_map = df_valid[['Cascade_ID', 'Quartile']].drop_duplicates()
         df_cascades_entropy = df_cascades_entropy.merge(cascade_map, on='Cascade_ID', how='inner')
 
-        # User entropy (exclude system accounts)
         system_accounts = {'[deleted]', 'deleted', 'automoderator', 'redditcaresresources'}
         df_users_clean = df_valid[~df_valid['Author'].str.lower().isin(system_accounts)].copy()
         df_users_entropy = df_users_clean.groupby('Author')['Topic'].agg(
@@ -427,7 +418,6 @@ class NLPEngine:
         _plot(df_cascades_entropy, 'Cascades', 'Quartile', ['Q1', 'Q2', 'Q3', 'Q4'])
         _plot(df_users_entropy, 'Users', 'User_Type', ['UQ1', 'UQ2', 'UQ3', 'UQ4'])
 
-        # Statistical tests (Kruskal-Wallis and Kolmogorov-Smirnov)
         print("[INFO] ℹ️ Running Kruskal-Wallis and KS statistical tests...")
         with open(self.master_stats_file, "a", encoding="utf-8") as f:
             f.write("="*80 + "\n")
@@ -479,12 +469,10 @@ class NLPEngine:
             texts_g2 = df[df[col_name] == g2_label]['Body'].tolist()
             if not texts_g1 or not texts_g2: return
 
-            # min_df=15 removes ultra-rare noise strings and typos
             vectorizer = CountVectorizer(stop_words=self.pt_stopwords, min_df=15)
             X = vectorizer.fit_transform(texts_g1 + texts_g2)
             vocab = vectorizer.get_feature_names_out()
 
-            # Additional length filter: cut noise strings not separated by spaces
             valid_idx = [i for i, v in enumerate(vocab) if len(v) <= 16 and len(v) > 2]
             X = X[:, valid_idx]
             vocab = vocab[valid_idx]
@@ -506,23 +494,19 @@ class NLPEngine:
             top_g1 = df_val_filtered.nsmallest(10, 'Valence').copy()
             top_g2 = df_val_filtered.nlargest(10, 'Valence').copy()
 
-            # Ordena para os valores mais extremos ficarem no topo (index 9)
             top_g1 = top_g1.sort_values(by='Valence', ascending=False).reset_index(drop=True)
             top_g2 = top_g2.sort_values(by='Valence', ascending=True).reset_index(drop=True)
 
             Config.set_sns_theme()
-            # Reduz a altura do gráfico (de 10 para 6)
             fig, ax = plt.subplots(figsize=(10, 6))
             y_pos = np.arange(10)
 
-            # Desenha as barras opostas na mesma linha (Tornado/Butterfly Chart)
-            bars_g1 = ax.barh(y_pos, top_g1['Valence'], color=color_g1, edgecolor='black', height=0.5, alpha=0.9)
-            bars_g2 = ax.barh(y_pos, top_g2['Valence'], color=color_g2, edgecolor='black', height=0.5, alpha=0.9)
+            ax.barh(y_pos, top_g1['Valence'], color=color_g1, edgecolor='black', height=0.5, alpha=0.9)
+            ax.barh(y_pos, top_g2['Valence'], color=color_g2, edgecolor='black', height=0.5, alpha=0.9)
 
             ax.axvline(0, color='black', linewidth=1.5)
-            ax.set_yticks([]) # Remove as marcações centrais do eixo Y
+            ax.set_yticks([])
 
-            # Escreve as palavras lado a lado com as barras
             for i in range(10):
                 val1 = top_g1.loc[i, 'Valence']
                 term1 = top_g1.loc[i, 'Term'].upper()
@@ -532,7 +516,6 @@ class NLPEngine:
                 term2 = top_g2.loc[i, 'Term'].upper()
                 ax.text(val2 + 0.03, i, f"({val2:.2f}) {term2}", va='center', ha='left', fontsize=12, fontweight='bold')
 
-            # Define limites para caber o texto, mas mantém os Ticks fiéis ao [-1, 1]
             ax.set_xlim(-1.4, 1.4)
             ax.set_xticks([-1.0, -0.5, 0, 0.5, 1.0])
             
@@ -544,7 +527,6 @@ class NLPEngine:
             plt.savefig(os.path.join(self.output_dir, f"Fig_Valence_{title_prefix}_{safe_g1}_vs_{safe_g2}.pdf"), dpi=300, bbox_inches='tight')
             plt.close()
 
-            # LaTeX export of Top 10
             latex_table = f"""\\begin{{table}}[htbp]
     \\centering
     \\caption{{Termos com maior polaridade de Valência entre {g1_label} e {g2_label} ({title_prefix}).}}
@@ -559,7 +541,7 @@ class NLPEngine:
                 row_g2 = top_g2.iloc[9 - i]
                 latex_table += f"        {row_g1['Term']} & {row_g1['Valence']:.2f} & {int(row_g1['Total_Count'])} & "
             latex_table += f"{row_g2['Term']} & {row_g2['Valence']:.2f} & {int(row_g2['Total_Count'])} \\\\\n"
-            latex_table += """        \\bottomrule\n    \\end{tabular}\n\\end{table}\n"""
+            latex_table += """        \\bottomrule\n    \\end{{tabular}}\n\\end{table}\n"""
             
             with open(self.master_latex_file, "a", encoding="utf-8") as f:
                 f.write(f"=== VALENCE TABLE: {title_prefix} ({safe_g1} vs {safe_g2}) ===\n")
@@ -576,28 +558,20 @@ class NLPEngine:
         print("\n[SYSTEM] SAVING OUTPUT FILES\n")
 
     def run_liwc_analysis(self, df_comments, dic_path=None):
-        
         print("[SYSTEM] LIWC ANALYSIS")
         
-        # ============================================================
-        # LOCALIZAÇÃO DO DICIONÁRIO (com fallback)
-        # ============================================================
-        # Detecta o diretório audit/ (onde core/ e resources/ estão)
-        current_dir = os.path.dirname(os.path.abspath(__file__))          # .../audit/core
-        audit_dir = os.path.dirname(current_dir)                          # .../audit
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        audit_dir = os.path.dirname(current_dir)
         
-        # Lista de possíveis localizações do dicionário (prioridade)
         possible_paths = [
-            os.path.join(audit_dir, "resources", "Brazilian_Portuguese_LIWC2015_dictionary.dic"),  # novo local
-            os.path.join(audit_dir, "Brazilian_Portuguese_LIWC2015_dictionary.dic"),               # antigo local (raiz)
-            "Brazilian_Portuguese_LIWC2015_dictionary.dic",                                        # fallback local
+            os.path.join(audit_dir, "resources", "Brazilian_Portuguese_LIWC2015_dictionary.dic"),
+            os.path.join(audit_dir, "Brazilian_Portuguese_LIWC2015_dictionary.dic"),
+            "Brazilian_Portuguese_LIWC2015_dictionary.dic",
         ]
         
-        # Se o usuário passou um caminho específico, usa ele
         if dic_path is not None:
             possible_paths.insert(0, dic_path)
         
-        # Procura o primeiro caminho que existe
         found_path = None
         for path in possible_paths:
             if os.path.exists(path):
@@ -607,33 +581,12 @@ class NLPEngine:
         if found_path is None:
             print(f"[WARN] LIWC dictionary not found!")
             print(f"       Searched: {possible_paths}")
-            print(f"       Please place the dictionary in audit/resources/")
             return
         
         dic_path = found_path
         print(f"[INFO] ✅ LIWC dictionary loaded from: {dic_path}")
         
-        # ============================================================
-        # CARREGAMENTO DO DICIONÁRIO
-        # ============================================================
         import liwc  # type: ignore
-
-        temp_dic = os.path.join(self.output_dir, "temp_cleaned_liwc.dic")
-        try:
-            with codecs.open(dic_path, 'r', encoding='utf-8-sig', errors='ignore') as f: # type: ignore
-                content = f.read()
-            content = content.replace('\r\n', '\n').replace('\r', '\n').strip()
-            if not content.startswith('%'):
-                content = '%\n' + content
-            with open(temp_dic, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception as e:
-            spinner_liwc.stop(f"❌ Error while sanitizing dictionary: {e}")
-            return
-
-        parse, category_names = liwc.load_token_parser(temp_dic)
-        if os.path.exists(temp_dic):
-            os.remove(temp_dic)
 
         spinner_liwc = ConsoleSpinner("📚 Loading and sanitizing LIWC Dictionary...")
         spinner_liwc.start()
@@ -678,7 +631,6 @@ class NLPEngine:
         engine.load_or_extract_data()
         c_q1, c_q2, c_q3, c_q4 = engine.colors['COLOR_SCHEME']
 
-        # ================= LIWC BASE METHOD =================
         def process_and_plot_liwc(df_text, id_col, group_col, group_labels, filename_prefix):
             liwc_results = []
             total_rows = len(df_text)
@@ -707,7 +659,6 @@ class NLPEngine:
                     perc_counts[id_col] = row[id_col]
                     liwc_results.append(perc_counts)
                 except Exception as e:
-                    print(f"[WARN] Row {row_num} ignored: {e}", flush=True)
                     continue
             print(f"\n[*] LIWC loop finished. {len(liwc_results)}/{total_rows} processed rows.", flush=True)
 
@@ -744,7 +695,6 @@ class NLPEngine:
 
             df_stats = pd.DataFrame(stats_results).sort_values(by='Spearman_Rho', ascending=False, na_position='last')
 
-            # --- Exportação em Texto Simples no Arquivo Mestre ---
             txt_output = f"=== Spearman Correlation between Negativity and LIWC ({filename_prefix}) ===\n\n"
             for _, row in df_stats.iterrows():
                 rho_str = "N/A" if pd.isna(row['Spearman_Rho']) else f"{row['Spearman_Rho']:.4f}"
@@ -754,56 +704,19 @@ class NLPEngine:
             with open(self.master_stats_file, "a", encoding="utf-8") as f:
                 f.write(txt_output + "\n")
 
-            # --- Exportação em LaTeX no Arquivo Mestre ---
             latex_table = f"\\begin{{table}}[htbp]\n    \\centering\n    \\caption{{Spearman Correlation between Negativity and LIWC ({filename_prefix}).}}\n    \\begin{{tabular}}{{lcc}}\n        \\toprule\n        \\textbf{{LIWC Category}} & \\textbf{{$\\rho$ (Spearman)}} & \\textbf{{$p$-value}} \\\\\n        \\midrule\n"
             for _, row in df_stats.iterrows():
                 rho_str = "N/A" if pd.isna(row['Spearman_Rho']) else f"{row['Spearman_Rho']:.4f}"
                 p_str = "N/A" if pd.isna(row['P_Value']) else ("< 0.001" if row['P_Value'] < 0.001 else f"{row['P_Value']:.4f}")
                 latex_table += f"        {row['LIWC_Category']} & {rho_str} & {p_str} \\\\\n"
-            latex_table += "        \\bottomrule\n    \\end{tabular}\n\\end{table}"
+            latex_table += "        \\bottomrule\n    \\end{{tabular}}\n\\end{table}"
             
             with open(self.master_latex_file, "a", encoding="utf-8") as f:
                 f.write(f"=== LIWC CORRELATIONS TABLE ({filename_prefix}) ===\n")
                 f.write(latex_table + "\n\n")
-                
-            # --- ESTATÍSTICAS DE DISTRIBUIÇÃO LIWC (Kruskal-Wallis e KS Test) ---
-            stats_results_kw = []
-            for cat in target_concepts:
-                g_c = [df_final[df_final[group_col] == q][cat].dropna().values for q in group_labels]
-                
-                if len(g_c) == 4 and all(len(g) > 0 for g in g_c):
-                    h_stat, p_val = kruskal(*g_c)
-                    ks_stat_14, ks_p_14 = ks_2samp(g_c[0], g_c[3])
-                    ks_stat_34, ks_p_34 = ks_2samp(g_c[2], g_c[3])
-                    ks_stat_13, ks_p_13 = ks_2samp(g_c[0], g_c[2])
-                else:
-                    h_stat, p_val = float('nan'), float('nan')
-                    ks_stat_14, ks_p_14 = float('nan'), float('nan')
-                    ks_stat_34, ks_p_34 = float('nan'), float('nan')
-                    ks_stat_13, ks_p_13 = float('nan'), float('nan')
-                
-                stats_results_kw.append({
-                    'LIWC_Category': cat.upper(),
-                    'Kruskal_H': h_stat, 'Kruskal_p': p_val,
-                    'KS_D_14': ks_stat_14, 'KS_p_14': ks_p_14,
-                    'KS_D_34': ks_stat_34, 'KS_p_34': ks_p_34,
-                    'KS_D_13': ks_stat_13, 'KS_p_13': ks_p_13
-                })
-            
-            df_kw = pd.DataFrame(stats_results_kw)
-            with open(self.master_stats_file, "a", encoding="utf-8") as f:
-                f.write(f"=== LIWC CATEGORIES DISTRIBUTION TESTS ({filename_prefix}) ===\n")
-                for _, row in df_kw.iterrows():
-                    f.write(f"\nCategory: {row['LIWC_Category']}\n")
-                    f.write(f"  Kruskal-Wallis (Across {group_col}): H={row['Kruskal_H']:.4f}, p={row['Kruskal_p']:.4e}\n")
-                    f.write(f"  Kolmogorov-Smirnov ({group_labels[0]} vs {group_labels[3]}): D={row['KS_D_14']:.4f}, p={row['KS_p_14']:.4e}\n")
-                    f.write(f"  Kolmogorov-Smirnov ({group_labels[2]} vs {group_labels[3]}): D={row['KS_D_34']:.4f}, p={row['KS_p_34']:.4e}\n")
-                    f.write(f"  Kolmogorov-Smirnov ({group_labels[0]} vs {group_labels[2]}): D={row['KS_D_13']:.4f}, p={row['KS_p_13']:.4e}\n")
-                f.write("\n")
 
             print("\n[SYSTEM] SAVING OUTPUT FILES\n")
 
-        # 1. LIWC for CASCADES
         df_cascades_text = df_comments.groupby('Cascade_ID').agg(
             {'Body': lambda x: ' '.join(v for v in x if isinstance(v, str)), 'Quartile': 'first'}
         ).reset_index()
@@ -812,7 +725,6 @@ class NLPEngine:
 
         gc.collect()
 
-        # 2. LIWC for USERS
         df_users_text = df_comments.dropna(subset=['User_Type']).groupby('Author').agg(
             {'Body': lambda x: ' '.join(v for v in x if isinstance(v, str)), 'User_Type': 'first'}
         ).reset_index()

@@ -163,7 +163,7 @@ def save_progress(all_comments, output_file, labeled_dict):
     print(f"[*] Progresso salvo em: {output_file}")
 
 def generate_report(sampled_comments, labeled, output_file):
-    """Gera matriz de confusão e médias de confiança."""
+    """Gera matriz de confusão, métricas por classe (incluindo acurácia) e médias de confiança."""
     
     # Mapeia AI label -> short label
     y_true = []  # humano
@@ -213,16 +213,25 @@ def generate_report(sampled_comments, labeled, output_file):
     
     overall_mean_conf = sum(mean_conf.values()) / len(mean_conf) if mean_conf else 0.0
     
-    # Per-class metrics
+    # Per-class metrics (agora com acurácia)
     per_class = {}
     for c in classes:
         tp = cm[c][c]
         fp = sum(cm[other][c] for other in classes if other != c)
         fn = sum(cm[c][other] for other in classes if other != c)
+        tn = sum(cm[o1][o2] for o1 in classes if o1 != c for o2 in classes if o2 != c)
+        
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-        per_class[c] = {'precision': precision, 'recall': recall, 'f1': f1}
+        class_accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+        
+        per_class[c] = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'accuracy': class_accuracy
+        }
     
     # Escreve relatório
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -242,7 +251,7 @@ def generate_report(sampled_comments, labeled, output_file):
         f.write("\nMétricas por Classe:\n")
         for c in classes:
             m = per_class[c]
-            f.write(f"  {c}: Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}\n")
+            f.write(f"  {c}: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}\n")
         
         f.write("\nMédias de Confiança do Classificador:\n")
         for c in sorted(mean_conf.keys()):
@@ -266,6 +275,37 @@ def generate_report(sampled_comments, labeled, output_file):
     print(f"  Confiança média geral: {overall_mean_conf:.4f}")
 
 def main():
+    import sys
+    
+    # ============================================================
+    # MODO REPORT-ONLY: Gera relatório a partir do arquivo rotulado
+    # ============================================================
+    if "--report-only" in sys.argv or "-r" in sys.argv:
+        print("[*] Modo report-only: gerando relatório a partir do arquivo rotulado existente.")
+        
+        if not os.path.exists(OUTPUT_LABELED):
+            print(f"[ERROR] Arquivo {OUTPUT_LABELED} não encontrado.")
+            print("       Execute a validação manual primeiro (sem a flag --report-only).")
+            sys.exit(1)
+        
+        print(f"[*] Carregando {OUTPUT_LABELED}...")
+        sampled = []
+        labeled = {}
+        with open(OUTPUT_LABELED, 'r', encoding='utf-8') as f:
+            for line in f:
+                rec = json.loads(line)
+                sampled.append(rec)
+                if 'human_label' in rec and rec['human_label'] is not None:
+                    labeled[rec['id']] = rec['human_label']
+        
+        print(f"[*] {len(labeled)} comentários rotulados carregados.")
+        generate_report(sampled, labeled, OUTPUT_REPORT)
+        return
+    
+    # ============================================================
+    # MODO NORMAL: Amostragem + Anotação + Relatório
+    # ============================================================
+    
     # Localiza o arquivo de entrada
     input_path = INPUT_FILE
     if not os.path.exists(input_path):

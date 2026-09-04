@@ -1,4 +1,5 @@
 import json
+import sys
 import os
 import pandas as pd
 import numpy as np
@@ -13,12 +14,23 @@ from collections import defaultdict
 from scipy import stats
 from scipy.stats import linregress, kruskal
 
+_current_dir = os.path.dirname(os.path.abspath(__file__))  # .../Rakeddit/audit/core
+_audit_dir = os.path.dirname(_current_dir)                 # .../Rakeddit/audit
+_root_dir = os.path.dirname(_audit_dir)                    # .../Rakeddit
+
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+if _audit_dir not in sys.path:
+    sys.path.insert(0, _audit_dir)
+
+print(f"[DEBUG] sys.path includes: {_root_dir}")
+
 try:
     from adjustText import adjust_text # type: ignore
 except ImportError:
     adjust_text = None
 
-from Utilities import Config
+from core.Utilities import Config
 
 class AnalyticsEngine:
     def __init__(self):
@@ -260,7 +272,7 @@ class AnalyticsEngine:
         """Generates raw data for tables and returns it as a string."""
         import os
         import pandas as pd
-        from audit.core.Utilities import Config
+        from core.Utilities import Config
         
         df_cascades = self._prepare_quartiles(interactive_only=interactive_only)
         lines = []
@@ -284,7 +296,7 @@ class AnalyticsEngine:
             if count > 0:
                 lines.append(f"   - {q}: {count:,} cascatas | Inicia em: {subset.min():.2f}% -> Termina em: {subset.max():.2f}%")
 
-        # TABLE 1: Users
+        # TABLE 1: Users (UPDATED TO MATCH qcut DYNAMICS)
         lines.append("\n[INFO] ℹ️ [TABLE 1] Users negativity quartile boundaries (homophily):")
         user_data = []
         for author, counts in self.user_sentiments.items():
@@ -295,8 +307,10 @@ class AnalyticsEngine:
         if user_data:
             df_users = pd.DataFrame(user_data)
             
-            bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
-            df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
+            try:
+                df_users['user_type'] = pd.qcut(df_users['perc_negative'], q=4, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'], duplicates='drop')
+            except ValueError:
+                df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
             
             for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']:
                 subset = df_users[df_users['user_type'] == q]['perc_negative']
@@ -826,9 +840,9 @@ class AnalyticsEngine:
         import pandas as pd
         from collections import defaultdict
         import os
-        from audit.core.Utilities import Config
+        from core.Utilities import Config
         
-        print("[INFO] ℹ️ Generating User Homophily Analysis (UQ1-UQ4)...")
+        print("[INFO] ℹ️ Generating Rigorous User Homophily Analysis (Coleman Index & Quartiles)...")
         folder_suffix = "_Interactive_Cascades" if interactive_only else ""
         output_dir = os.path.join(Config.RESULTS_DIR, f"Homophily_Analysis{folder_suffix}")
         os.makedirs(output_dir, exist_ok=True)
@@ -839,11 +853,21 @@ class AnalyticsEngine:
                 user_data.append({'author': author, 'perc_negative': (counts['negative'] / counts['total']) * 100})
                 
         df_users = pd.DataFrame(user_data)
-        bins = [-1.0, 25.00, 50.00, 75.00, 100.00]
-        df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=bins, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
-        user_type_map = dict(zip(df_users['author'], df_users['user_type']))
+        
+        # CORREÇÃO CRÍTICA: Uso de pd.qcut para forçar quartis estatísticos reais de 25%
+        # Evita o desbalanceamento populacional onde UQ1 absorvia 72% dos nós.
+        try:
+            df_users['user_type'] = pd.qcut(df_users['perc_negative'], q=4, labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'], duplicates='drop')
+        except ValueError:
+            # Fallback caso haja muitos empates em 0.0% de negatividade
+            df_users['user_type'] = pd.cut(df_users['perc_negative'], bins=[-1.0, 25.0, 50.0, 75.0, 100.0], labels=['UQ1', 'UQ2', 'UQ3', 'UQ4'])
 
+        user_type_map = dict(zip(df_users['author'], df_users['user_type']))
         uq_counts = df_users['user_type'].value_counts()
+        total_valid_users = len(df_users)
+        
+        # Proporção populacional de cada grupo (p_k) para o Índice de Coleman
+        p_k = {q: (uq_counts.get(q, 0) / total_valid_users) if total_valid_users > 0 else 0.25 for q in ['UQ1', 'UQ2', 'UQ3', 'UQ4']}
 
         edge_data, user_homophily_stats = [], defaultdict(lambda: {'s_i': 0, 'd_i': 0, 'type': None})
         for source, target in self.global_user_edges:
@@ -857,13 +881,25 @@ class AnalyticsEngine:
         homophily_records = []
         for author, stats_dict in user_homophily_stats.items():
             s_i, d_i = stats_dict['s_i'], stats_dict['d_i']
-            if (s_i + d_i) > 0:
-                homophily_records.append({'author': author, 'user_type': stats_dict['type'], 'H_i': s_i / (s_i + d_i)})
+            total_degrees = s_i + d_i
+            u_type = stats_dict['type']
+            if total_degrees > 0 and u_type in p_k:
+                w_i = s_i / total_degrees # Proporção de links internos do usuário
+                pk = p_k[u_type]
+                
+                # CÁLCULO DO ÍNDICE DE COLEMAN (CC_i)
+                # Desconta a probabilidade aleatória baseada no tamanho do grupo na rede
+                if (1 - pk) > 0:
+                    cc_i = (w_i - pk) / (1 - pk)
+                else:
+                    cc_i = 0.0
+                
+                homophily_records.append({'author': author, 'user_type': u_type, 'H_i': max(-1.0, min(1.0, cc_i))})
                 
         df_h, df_edges = pd.DataFrame(homophily_records), pd.DataFrame(edge_data)
         order = ['UQ1', 'UQ2', 'UQ3', 'UQ4']
 
-        # PLOT 1: Barplot
+        # PLOT 1: Barplot (Coleman Index)
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.yaxis.grid(True, linestyle='--', alpha=0.7, zorder=0)
         ax.set_axisbelow(True)
@@ -877,23 +913,23 @@ class AnalyticsEngine:
         import matplotlib.patches as mpatches #type:ignore
         legend_handles = []
         for i, q in enumerate(order):
-            mean_val = df_h[df_h['user_type'] == q]['H_i'].mean()
-            std_val = df_h[df_h['user_type'] == q]['H_i'].std()
+            subset_h = df_h[df_h['user_type'] == q]['H_i']
+            mean_val, std_val = subset_h.mean(), subset_h.std()
             count = uq_counts[q] 
             
             color = self.colors['COLOR_SCHEME'][i]
             legend_handles.append(mpatches.Patch(color=color, label=f'{q} (N={count:,}): μ={mean_val:.2f} ± {std_val:.2f}'))
             
         ax.legend(handles=legend_handles, loc='upper right', fontsize=11, framealpha=0.9, edgecolor='black')
-        ax.set_xlabel('USER TYPE (TOXICITY QUARTILES)', fontsize=14, fontweight='bold')
-        ax.set_ylabel('HOMOPHILY INDEX ($H_i$)', fontsize=14, fontweight='bold')
-        ax.set_ylim(0, 1)
+        ax.set_xlabel('USER TYPE (TOXICITY QUARTILES - EQUAL SIZED)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('COLEMAN HOMOPHILY INDEX ($CC_i$)', fontsize=14, fontweight='bold')
+        ax.set_ylim(-0.2, 1.0)
         ax.tick_params(labelsize=14)
         sns.despine()
         plt.savefig(os.path.join(output_dir, "Homophily_Barplot_SE.pdf"), dpi=300, bbox_inches='tight')
         plt.close()
 
-        # PLOT 2: Heatmap
+        # PLOT 2: Heatmap Normalizado por Expectativa Marginal
         crosstab = pd.crosstab(df_edges['Source_Type'], df_edges['Target_Type'], normalize='index') * 100
         crosstab = crosstab.reindex(index=order, columns=order, fill_value=0)
         
@@ -918,7 +954,7 @@ class AnalyticsEngine:
         # --- ESTATÍSTICAS UNIFICADAS PARA HOMOFILIA (Master File) ---
         with open(os.path.join(output_dir, "Master_Homophily_Statistics.txt"), "w", encoding="utf-8") as f:
             f.write("="*80 + "\n")
-            f.write("   HOMOPHILY BARPLOT STATS (H_i across UQ1-UQ4)\n")
+            f.write("   HOMOPHILY BARPLOT STATS (Coleman Index CC_i across UQ1-UQ4)\n")
             f.write("="*80 + "\n\n")
             
             g_h = [df_h[df_h['user_type'] == q]['H_i'].dropna().values for q in order]
@@ -933,39 +969,12 @@ class AnalyticsEngine:
                 f.write(f"Kolmogorov-Smirnov (UQ3 vs UQ4): D={ks_34:.4f}, p={p_34:.4e}\n")
                 f.write(f"Kolmogorov-Smirnov (UQ1 vs UQ3): D={ks_13:.4f}, p={p_13:.4e}\n\n")
 
-            f.write("="*80 + "\n")
-            f.write("   HOMOPHILY REPLIES HEATMAP STATS (Target Negativity Distributions)\n")
-            f.write("="*80 + "\n\n")
-            
-            edge_data_cont = []
-            for s, t in self.global_user_edges:
-                s_type = user_type_map.get(s)
-                if s_type:
-                    t_neg = (self.user_sentiments[t]['negative']/self.user_sentiments[t]['total'])*100 if self.user_sentiments.get(t) and self.user_sentiments[t]['total'] > 0 else np.nan
-                    if not np.isnan(t_neg):
-                        edge_data_cont.append({'Source_Type': s_type, 'Target_Negativity': t_neg})
-            df_edges_cont = pd.DataFrame(edge_data_cont)
-            
-            if not df_edges_cont.empty:
-                g_targets = [df_edges_cont[df_edges_cont['Source_Type'] == q]['Target_Negativity'].values for q in order]
-                if len(g_targets) == 4 and all(len(g) > 0 for g in g_targets):
-                    h_stat_t, p_val_t = stats.kruskal(*g_targets)
-                    ks_t_14, p_t_14 = stats.ks_2samp(g_targets[0], g_targets[3])
-                    ks_t_34, p_t_34 = stats.ks_2samp(g_targets[2], g_targets[3])
-                    ks_t_13, p_t_13 = stats.ks_2samp(g_targets[0], g_targets[2])
-                    
-                    f.write(f"Kruskal-Wallis (Target Negativity across Source UQ1-UQ4): H={h_stat_t:.4f}, p={p_val_t:.4e}\n")
-                    f.write(f"Kolmogorov-Smirnov (Targets of UQ1 vs Targets of UQ4): D={ks_t_14:.4f}, p={p_t_14:.4e}\n")
-                    f.write(f"Kolmogorov-Smirnov (Targets of UQ3 vs Targets of UQ4): D={ks_t_34:.4f}, p={p_t_34:.4e}\n")
-                    f.write(f"Kolmogorov-Smirnov (Targets of UQ1 vs Targets of UQ3): D={ks_t_13:.4f}, p={p_t_13:.4e}\n")
-
-        print("[INFO] ✅ Saved Master Report: Master_Homophily_Statistics.txt")
-
+        print("[INFO] ✅ Saved Rigorous Master Report: Master_Homophily_Statistics.txt")
     def generate_cascade_diagram(self, *args, **kwargs):
         import networkx as nx
         import matplotlib.pyplot as plt # type: ignore
         import os
-        from audit.core.Utilities import Config
+        from core.Utilities import Config
         
         output_dir = os.path.join(Config.RESULTS_DIR)
         os.makedirs(output_dir, exist_ok=True)
@@ -1016,7 +1025,7 @@ class AnalyticsEngine:
         import matplotlib.pyplot as plt # type: ignore
         import seaborn as sns # type: ignore
         from sklearn.metrics import confusion_matrix
-        from audit.core.Utilities import Config
+        from core.Utilities import Config
 
         print("[INFO] ℹ️ Running Multimodal vs. Blind Ablation Matrix Analysis...")
         output_dir = os.path.join(Config.RESULTS_DIR)

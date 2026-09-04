@@ -3,8 +3,6 @@
 *.jsonl
 results/
 *.rar
-
-# remember kids, don't leak your stuff!!
 config.ini
 
 # also don't go sharing random logs
@@ -20,8 +18,13 @@ logging/
 *.mp4
 models/
 
-# avoid uploading cache
-.parquet
+# avoid uploading cache and models
+*.parquet
+*.safetensors
+*.ckpt
+*.bin
+*.pth
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
